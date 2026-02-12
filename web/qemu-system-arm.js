@@ -9188,6 +9188,9 @@ var _fflush = Module['_fflush'] = createExportWrapper('fflush');
 var _malloc = createExportWrapper('malloc');
 var _pebble_button_state_addr = Module['_pebble_button_state_addr'] = createExportWrapper('pebble_button_state_addr');
 var _pebble_set_buttons = Module['_pebble_set_buttons'] = createExportWrapper('pebble_set_buttons');
+var _pebble_serial_js_to_qemu_addr = Module['_pebble_serial_js_to_qemu_addr'] = createExportWrapper('pebble_serial_js_to_qemu_addr');
+var _pebble_serial_qemu_to_js_addr = Module['_pebble_serial_qemu_to_js_addr'] = createExportWrapper('pebble_serial_qemu_to_js_addr');
+var _pebble_serial_ring_size = Module['_pebble_serial_ring_size'] = createExportWrapper('pebble_serial_ring_size');
 var _main = Module['_main'] = createExportWrapper('__main_argc_argv');
 var _pthread_self = Module['_pthread_self'] = () => (_pthread_self = Module['_pthread_self'] = wasmExports['pthread_self'])();
 var __emscripten_tls_init = Module['__emscripten_tls_init'] = createExportWrapper('_emscripten_tls_init');
@@ -9300,8 +9303,8 @@ var _asyncify_start_unwind = createExportWrapper('asyncify_start_unwind');
 var _asyncify_stop_unwind = createExportWrapper('asyncify_stop_unwind');
 var _asyncify_start_rewind = createExportWrapper('asyncify_start_rewind');
 var _asyncify_stop_rewind = createExportWrapper('asyncify_stop_rewind');
-var ___start_em_js = Module['___start_em_js'] = 10459538;
-var ___stop_em_js = Module['___stop_em_js'] = 10469947;
+var ___start_em_js = Module['___start_em_js'] = 10461538;
+var ___stop_em_js = Module['___stop_em_js'] = 10471947;
 function invoke_ii(index,a1) {
   var sp = stackSave();
   try {

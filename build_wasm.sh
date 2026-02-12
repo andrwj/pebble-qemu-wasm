@@ -47,13 +47,14 @@ cp -a /qemu-src /qemu-rw
 cd /qemu-rw
 
 # Copy Pebble include files
-mkdir -p include/hw/arm
+mkdir -p include/hw/arm include/hw/block
 cp /pebble/include/hw/arm/stm32_common.h include/hw/arm/
 cp /pebble/include/hw/arm/pebble.h include/hw/arm/
 cp /pebble/include/hw/arm/stm32_clktree.h include/hw/arm/
+cp /pebble/include/hw/block/pflash_jedec_424.h include/hw/block/
 
 # Copy Pebble hw source files
-for dir in arm misc char ssi timer dma display gpio; do
+for dir in arm misc char ssi timer dma display gpio block; do
     if [ -d "/pebble/hw/${dir}" ]; then
         mkdir -p "hw/${dir}"
         for f in /pebble/hw/${dir}/*; do
@@ -152,6 +153,10 @@ patch_meson hw/gpio/meson.build "stm32_pebble" \
 # hw/char/meson.build
 patch_meson hw/char/meson.build "stm32_pebble_uart" \
 "system_ss.add(when: '"'"'CONFIG_PEBBLE'"'"', if_true: files('"'"'stm32_pebble_uart.c'"'"'))"
+
+# hw/block/meson.build
+patch_meson hw/block/meson.build "pflash_jedec_424" \
+"system_ss.add(when: '"'"'CONFIG_PEBBLE'"'"', if_true: files('"'"'pflash_jedec_424.c'"'"'))"
 
 # === WASM cross-compilation patches ===
 python3 /pebble/scripts/patch_wasm.py /qemu-rw

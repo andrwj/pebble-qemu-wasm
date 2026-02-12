@@ -824,7 +824,7 @@ static const Property pflash_jedec_properties[] = {
     DEFINE_PROP_STRING("name", PFlashJEDEC424, name),
 };
 
-static void pflash_jedec_class_init(ObjectClass *klass, void *data)
+static void pflash_jedec_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

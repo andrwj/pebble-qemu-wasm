@@ -269,6 +269,11 @@ static void pebble_control_forward_to_target(PebbleControl *s)
     int can_read_bytes = s->uart_chr_can_read(s->uart);
     if (can_read_bytes > 0) {
         can_read_bytes = MIN(can_read_bytes, s->target_send_bytes);
+#ifdef __EMSCRIPTEN__
+        printf("PEBBLE_CONTROL: forward_to_target: sending %d bytes to UART "
+               "(can_read=%d, remaining=%d)\n",
+               can_read_bytes, can_read_bytes, s->target_send_bytes - can_read_bytes);
+#endif
         s->uart_chr_read(s->uart, s->rcv_char_buf, can_read_bytes);
         pebble_control_consume_rcv_bytes(s, can_read_bytes);
         s->target_send_bytes -= can_read_bytes;
@@ -325,6 +330,10 @@ static void pebble_control_parse_receive_buffer(PebbleControl *s)
         uint16_t protocol = ntohs(hdr->protocol);
         const PebbleControlMessageHandler* handler = pebble_control_find_handler(s, protocol);
         if (!handler) {
+#ifdef __EMSCRIPTEN__
+            printf("PEBBLE_CONTROL: parse_rcv: forwarding proto=%d (%d bytes) to UART\n",
+                   protocol, total_size);
+#endif
             DPRINTF("%s: passing packet with protocol %d (%d bytes) onto target\n",
                    __func__, protocol, total_size);
             s->target_send_bytes = total_size;
@@ -482,6 +491,181 @@ static int pebble_control_write(void *opaque, const uint8_t *buf, int len) {
 }
 
 
+// =====================================================================================
+// WASM ring buffer bridge — JavaScript ↔ QEMU serial communication
+// =====================================================================================
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+#define RING_SIZE 16384  /* Must be power of 2 */
+#define RING_MASK (RING_SIZE - 1)
+
+typedef struct {
+    volatile uint32_t head;  /* Written by producer, read by consumer */
+    volatile uint32_t tail;  /* Written by consumer, read by producer */
+    uint8_t data[RING_SIZE];
+} PebbleRingBuffer;
+
+static PebbleRingBuffer js_to_qemu_ring;
+static PebbleRingBuffer qemu_to_js_ring;
+static PebbleControl *s_wasm_control;
+static QEMUTimer *s_wasm_bridge_timer;
+
+/* Ring buffer helpers using C11 atomics for cross-thread safety */
+static uint32_t ring_available(PebbleRingBuffer *r)
+{
+    uint32_t h = __atomic_load_n(&r->head, __ATOMIC_ACQUIRE);
+    uint32_t t = __atomic_load_n(&r->tail, __ATOMIC_ACQUIRE);
+    return (h - t) & RING_MASK;
+}
+
+static uint32_t ring_free(PebbleRingBuffer *r)
+{
+    return RING_MASK - ring_available(r);
+}
+
+static uint32_t ring_read(PebbleRingBuffer *r, uint8_t *buf, uint32_t max_len)
+{
+    uint32_t avail = ring_available(r);
+    uint32_t n = MIN(avail, max_len);
+    if (n == 0) return 0;
+
+    uint32_t t = __atomic_load_n(&r->tail, __ATOMIC_ACQUIRE);
+    for (uint32_t i = 0; i < n; i++) {
+        buf[i] = r->data[(t + i) & RING_MASK];
+    }
+    __atomic_store_n(&r->tail, (t + n) & RING_MASK, __ATOMIC_RELEASE);
+    return n;
+}
+
+static uint32_t ring_write(PebbleRingBuffer *r, const uint8_t *buf, uint32_t len)
+{
+    uint32_t space = ring_free(r);
+    uint32_t n = MIN(space, len);
+    if (n == 0) return 0;
+
+    uint32_t h = __atomic_load_n(&r->head, __ATOMIC_ACQUIRE);
+    for (uint32_t i = 0; i < n; i++) {
+        r->data[(h + i) & RING_MASK] = buf[i];
+    }
+    __atomic_store_n(&r->head, (h + n) & RING_MASK, __ATOMIC_RELEASE);
+    return n;
+}
+
+/* Exported addresses for JavaScript to access ring buffers via SharedArrayBuffer */
+EMSCRIPTEN_KEEPALIVE uint32_t pebble_serial_js_to_qemu_addr(void)
+{
+    return (uint32_t)(uintptr_t)&js_to_qemu_ring;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t pebble_serial_qemu_to_js_addr(void)
+{
+    return (uint32_t)(uintptr_t)&qemu_to_js_ring;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t pebble_serial_ring_size(void)
+{
+    return RING_SIZE;
+}
+
+/* UART write handler for WASM — intercepts outgoing packets from firmware,
+ * assembles complete FEED/BEEF frames, and writes them to the qemu_to_js ring. */
+static int pebble_control_write_wasm(void *opaque, const uint8_t *buf, int len) {
+    PebbleControl *s = (PebbleControl *)opaque;
+
+    while (len) {
+        uint32_t space_left = sizeof(s->send_char_buf) - s->send_char_bytes;
+        if (space_left == 0) {
+            EPRINTF("%s: overflowed send buffer, aborting queued up data\n", __func__);
+            s->send_char_bytes = 0;
+            space_left = sizeof(s->send_char_buf);
+        }
+        uint32_t bytes_to_copy = MIN(space_left, len);
+        memmove(&s->send_char_buf[s->send_char_bytes], buf, bytes_to_copy);
+        s->send_char_bytes += bytes_to_copy;
+        len -= bytes_to_copy;
+
+        /* Check for complete packet */
+        if (s->send_char_bytes < sizeof(QemuCommChannelHdr)
+                                 + sizeof(QemuCommChannelFooter)) {
+            break;
+        }
+        QemuCommChannelHdr *hdr = (QemuCommChannelHdr *)s->send_char_buf;
+
+        if (ntohs(hdr->signature) != QEMU_HEADER_SIGNATURE) {
+            pebble_control_consume_send_bytes(s, sizeof(hdr->signature));
+            continue;
+        }
+
+        uint16_t data_len = ntohs(hdr->len);
+        if (data_len > QEMU_MAX_DATA_LEN) {
+            pebble_control_consume_send_bytes(s, sizeof(*hdr));
+            continue;
+        }
+
+        uint16_t total_size = sizeof(QemuCommChannelHdr) + data_len
+                                + sizeof(QemuCommChannelFooter);
+        if (s->send_char_bytes < total_size) {
+            if (len > 0) {
+                EPRINTF("%s: overflowed send buffer, aborting queued up data\n", __func__);
+                s->send_char_bytes = 0;
+                continue;
+            }
+            break;
+        }
+
+        /* Write complete packet to ring buffer for JavaScript */
+        {
+            QemuCommChannelHdr *shdr = (QemuCommChannelHdr *)s->send_char_buf;
+            printf("PEBBLE_CONTROL: write_wasm: complete packet proto=%d len=%d, "
+                   "writing %d bytes to ring\n",
+                   ntohs(shdr->protocol), ntohs(shdr->len), total_size);
+        }
+        uint32_t written = ring_write(&qemu_to_js_ring, s->send_char_buf, total_size);
+        if (written < total_size) {
+            EPRINTF("%s: qemu_to_js ring full, dropped %d bytes\n",
+                    __func__, total_size);
+        }
+        pebble_control_consume_send_bytes(s, total_size);
+    }
+
+    return 0;
+}
+
+/* Timer callback: polls js_to_qemu ring buffer and feeds data into
+ * pebble_control_receive(), same path as chardev data. */
+static uint32_t s_poll_count = 0;
+static void pebble_wasm_serial_poll(void *opaque)
+{
+    PebbleControl *s = (PebbleControl *)opaque;
+    s_poll_count++;
+
+    /* Heartbeat every 5000 invocations (~5s of virtual time) */
+    if ((s_poll_count % 5000) == 0) {
+        uint32_t h = __atomic_load_n(&js_to_qemu_ring.head, __ATOMIC_ACQUIRE);
+        uint32_t t = __atomic_load_n(&js_to_qemu_ring.tail, __ATOMIC_ACQUIRE);
+        printf("PEBBLE_CONTROL: poll heartbeat #%d, ring h=%d t=%d avail=%d, "
+               "clock=%lld\n",
+               s_poll_count, h, t, (h - t) & RING_MASK,
+               (long long)qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL));
+    }
+
+    uint8_t tmp[512];
+    uint32_t n = ring_read(&js_to_qemu_ring, tmp, sizeof(tmp));
+    if (n > 0) {
+        printf("PEBBLE_CONTROL: wasm_poll: read %d bytes from ring (poll#%d), first:",
+               n, s_poll_count);
+        for (uint32_t di = 0; di < n && di < 32; di++) printf(" %02x", tmp[di]);
+        printf("\n");
+        pebble_control_receive(s, tmp, n);
+    }
+
+    /* Re-arm the timer */
+    timer_mod(s_wasm_bridge_timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
+}
+#endif /* __EMSCRIPTEN__ */
+
+
 // -----------------------------------------------------------------------------------------
 static void pebble_control_send_packet(PebbleControl *s, QemuProtocol protocol, void *data,
                                 uint32_t len)
@@ -492,6 +676,18 @@ static void pebble_control_send_packet(PebbleControl *s, QemuProtocol protocol, 
     .protocol = htons(protocol),
     .len = htons(len)
   };
+
+#ifdef __EMSCRIPTEN__
+  if (!qemu_chr_fe_backend_connected(&s->chr)) {
+    /* No chardev — write to ring buffer for JavaScript */
+    ring_write(&qemu_to_js_ring, (uint8_t *)&hdr, sizeof(hdr));
+    ring_write(&qemu_to_js_ring, data, len);
+    QemuCommChannelFooter footer = { .signature = htons(QEMU_FOOTER_SIGNATURE) };
+    ring_write(&qemu_to_js_ring, (uint8_t *)&footer, sizeof(footer));
+    return;
+  }
+#endif
+
   qemu_chr_fe_write_all(&s->chr, (uint8_t *)&hdr, sizeof(hdr));
 
   // Send the data
@@ -517,11 +713,42 @@ void pebble_control_send_vibe_notification(PebbleControl *s, bool on)
     pebble_control_send_packet(s, QemuProtocol_Vibration, &hdr, sizeof(hdr));
 }
 
+
 // -----------------------------------------------------------------------------------
 PebbleControl *pebble_control_create(Chardev *chr, Stm32Uart *uart)
 {
     PebbleControl *s = g_malloc0(sizeof(PebbleControl));
 
+#ifdef __EMSCRIPTEN__
+    /* WASM mode: always use ring buffer bridge for serial communication.
+     * chr may be a null chardev (from -serial null), not a NULL pointer,
+     * so we can't rely on the chr==NULL check. */
+    (void)chr;
+    s->uart = uart;
+
+    s->target_send_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                              (QEMUTimerCB *)pebble_control_parse_receive_buffer, s);
+
+    /* Intercept UART writes — send to ring buffer instead of chardev */
+    stm32_uart_set_write_handler(uart, s, pebble_control_write_wasm);
+
+    /* Get UART receive handlers so we can forward incoming data to firmware */
+    stm32_uart_get_rcv_handlers(uart, &s->uart_chr_can_read,
+                                &s->uart_chr_read, &s->uart_chr_event);
+
+    /* Start polling timer for JS→QEMU ring buffer */
+    s_wasm_control = s;
+    s_wasm_bridge_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                        pebble_wasm_serial_poll, s);
+    timer_mod(s_wasm_bridge_timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 100);
+
+    printf("PEBBLE_CONTROL: WASM ring buffers initialized "
+           "(js_to_qemu=0x%x, qemu_to_js=0x%x, size=%d)\n",
+           (uint32_t)(uintptr_t)&js_to_qemu_ring,
+           (uint32_t)(uintptr_t)&qemu_to_js_ring,
+           RING_SIZE);
+#else
     if (chr) {
         // Initialize our own CharBackend with the chardev
         qemu_chr_fe_init(&s->chr, chr, &error_abort);
@@ -547,6 +774,7 @@ PebbleControl *pebble_control_create(Chardev *chr, Stm32Uart *uart)
                         NULL,
                         true);
     }
+#endif
 
     return s;
 }
