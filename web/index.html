@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Pebble Emulator</title>
+    <script src="jszip.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+        h1 { color: #4cc9f0; margin-bottom: 16px; font-size: 1.4em; font-weight: 500; }
+
+        /* Watch container */
+        .watch { position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 16px; }
+        .watch-body { background: #2a2a2a; border-radius: 24px; padding: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05); }
+        #canvas { display: block; border-radius: 4px; image-rendering: pixelated; width: 400px; height: 456px; background: #000; }
+
+        /* Buttons */
+        .buttons { display: flex; gap: 8px; margin-top: 12px; }
+        .btn { padding: 8px 18px; border: 1px solid #444; border-radius: 8px; background: #2a2a2a; color: #e0e0e0; font-family: inherit; font-size: 13px; cursor: pointer; transition: background 0.15s; user-select: none; -webkit-user-select: none; }
+        .btn:hover { background: #3a3a3a; }
+        .btn:active, .btn.active { background: #4cc9f0; color: #000; border-color: #4cc9f0; }
+
+        /* Install controls */
+        .controls { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+        .btn-install { background: #16213e; border-color: #4cc9f0; color: #4cc9f0; }
+        .btn-install:hover { background: #1a3060; }
+        .btn-install:disabled { opacity: 0.4; cursor: not-allowed; }
+        #install-status { font-size: 12px; color: #888; font-family: monospace; }
+
+        /* Progress bar */
+        .progress-wrap { width: 400px; height: 4px; background: #333; border-radius: 2px; margin-top: 8px; display: none; }
+        .progress-bar { height: 100%; background: #4cc9f0; border-radius: 2px; transition: width 0.2s; width: 0%; }
+
+        /* Console */
+        .console-wrap { width: 432px; margin-top: 16px; }
+        .console-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .console-header span { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+        .console-toggle { font-size: 11px; color: #4cc9f0; cursor: pointer; background: none; border: none; font-family: inherit; }
+        #console { background: #0a0a0a; color: #0f0; font-family: monospace; font-size: 11px; padding: 8px; height: 200px; overflow-y: auto; white-space: pre-wrap; border-radius: 4px; border: 1px solid #333; }
+
+        /* Loading overlay */
+        #loading { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; border-radius: 24px; color: #4cc9f0; font-size: 14px; flex-direction: column; gap: 12px; z-index: 10; }
+        #loading .spinner { width: 32px; height: 32px; border: 3px solid #333; border-top-color: #4cc9f0; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading.hidden { display: none; }
+
+        /* Keyboard hint */
+        .kbd-hint { font-size: 11px; color: #555; margin-top: 4px; }
+        kbd { background: #333; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Pebble Emulator</h1>
+
+    <div class="watch">
+        <div class="watch-body">
+            <canvas id="canvas" width="200" height="228"></canvas>
+        </div>
+        <div id="loading">
+            <div class="spinner"></div>
+            <span id="loading-text">Loading...</span>
+        </div>
+    </div>
+
+    <div class="buttons">
+        <button class="btn" id="btn-back" data-button="0">Back</button>
+        <button class="btn" id="btn-up" data-button="1">Up</button>
+        <button class="btn" id="btn-select" data-button="2">Select</button>
+        <button class="btn" id="btn-down" data-button="3">Down</button>
+    </div>
+    <div class="kbd-hint"><kbd>&#8592;</kbd> Back &nbsp; <kbd>&#8593;</kbd> Up &nbsp; <kbd>&#8595;</kbd> Down &nbsp; <kbd>Enter</kbd> Select</div>
+
+    <div class="controls">
+        <button class="btn btn-install" id="btn-install" disabled>Install App (.pbw)</button>
+        <input type="file" id="file-input" accept=".pbw" style="display:none">
+        <span id="install-status"></span>
+    </div>
+    <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+    </div>
+
+    <div class="console-wrap">
+        <div class="console-header">
+            <span>Console</span>
+            <button class="console-toggle" id="console-toggle">Hide</button>
+        </div>
+        <div id="console"></div>
+    </div>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // ================================================================
+        // DOM refs
+        // ================================================================
+        var consoleEl = document.getElementById('console');
+        var loadingEl = document.getElementById('loading');
+        var loadingText = document.getElementById('loading-text');
+        var installBtn = document.getElementById('btn-install');
+        var fileInput = document.getElementById('file-input');
+        var installStatus = document.getElementById('install-status');
+        var progressWrap = document.getElementById('progress-wrap');
+        var progressBar = document.getElementById('progress-bar');
+        var consoleToggle = document.getElementById('console-toggle');
+
+        consoleToggle.addEventListener('click', function() {
+            var c = document.getElementById('console');
+            if (c.style.display === 'none') { c.style.display = ''; consoleToggle.textContent = 'Hide'; }
+            else { c.style.display = 'none'; consoleToggle.textContent = 'Show'; }
+        });
+
+        function log(msg) {
+            var ts = new Date().toTimeString().slice(0,8) + '.' +
+                String(new Date().getMilliseconds()).padStart(3, '0');
+            var line = ts + ' ' + msg;
+            console.log(line);
+            consoleEl.textContent += line + '\n';
+            if (consoleEl.scrollHeight - consoleEl.scrollTop < consoleEl.clientHeight + 100) {
+                consoleEl.scrollTop = consoleEl.scrollHeight;
+            }
+        }
+
+        function setProgress(pct) {
+            progressWrap.style.display = pct >= 0 ? '' : 'none';
+            progressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+        }
+
+        // ================================================================
+        // Boot QEMU
+        // ================================================================
+        var runtimeReady = false;
+        var Module = window.Module = {
+            canvas: document.getElementById('canvas'),
+            noInitialRun: false,
+            arguments: [
+                '-machine', 'pebble-snowy-emery-bb',
+                '-display', 'none',
+                '-monitor', 'none',
+                '-parallel', 'none',
+                '-kernel', '/firmware/qemu_micro_flash.bin',
+                '-drive', 'if=none,id=spi-flash,file=/firmware/qemu_spi_flash.bin,format=raw',
+                '-serial', 'null',
+                '-serial', 'null',
+                '-serial', 'null',
+            ],
+            print: function(text) { log('[stdout] ' + text); },
+            printErr: function(text) {
+                if (text && text.length > 0 && text.indexOf('...') !== 0) {
+                    log('[QEMU] ' + text);
+                }
+            },
+            onRuntimeInitialized: function() {
+                log('[boot] QEMU runtime initialized');
+                runtimeReady = true;
+            },
+            locateFile: function(path) { return path; },
+            preRun: [],
+        };
+
+        async function fetchBin(url, label) {
+            var resp = await fetch(url);
+            if (!resp.ok) throw new Error(label + ': HTTP ' + resp.status);
+            var buf = await resp.arrayBuffer();
+            log('[boot] ' + label + ': ' + buf.byteLength + ' bytes');
+            return new Uint8Array(buf);
+        }
+
+        async function boot() {
+            loadingText.textContent = 'Fetching firmware...';
+            var fwBase = 'firmware/sdk/';
+            var microData = await fetchBin(fwBase + 'qemu_micro_flash.bin', 'micro_flash');
+            var spiData = await fetchBin(fwBase + 'qemu_spi_flash.bin', 'spi_flash');
+
+            Module.preRun.push(function() {
+                try { FS.mkdir('/firmware'); } catch(e) {}
+                try { FS.mkdir('/tmp'); } catch(e) {}
+                var offsetSec = -new Date().getTimezoneOffset() * 60;
+                ENV.TZ_OFFSET_SEC = String(offsetSec);
+                FS.writeFile('/firmware/qemu_micro_flash.bin', microData);
+                FS.writeFile('/firmware/qemu_spi_flash.bin', spiData);
+            });
+
+            loadingText.textContent = 'Loading QEMU (33 MB)...';
+            var script = document.createElement('script');
+            script.src = 'qemu-system-arm.js';
+            document.body.appendChild(script);
+        }
+
+        // ================================================================
+        // Ring Buffer (SPSC lock-free)
+        // ================================================================
+        var RING_SIZE = 16384;
+        var RING_MASK = RING_SIZE - 1;
+        var jsToQemuAddr = 0;
+        var qemuToJsAddr = 0;
+
+        function ringWrite(addr, data) {
+            var hIdx = addr >> 2, tIdx = (addr + 4) >> 2, base = addr + 8;
+            var h = Atomics.load(Module.HEAPU32, hIdx);
+            var t = Atomics.load(Module.HEAPU32, tIdx);
+            var free = RING_MASK - ((h - t) & RING_MASK);
+            var n = Math.min(free, data.length);
+            for (var i = 0; i < n; i++) {
+                Module.HEAPU8[base + ((h + i) & RING_MASK)] = data[i];
+            }
+            if (n > 0) Atomics.store(Module.HEAPU32, hIdx, (h + n) & RING_MASK);
+            return n;
+        }
+
+        function ringRead(addr, maxLen) {
+            var hIdx = addr >> 2, tIdx = (addr + 4) >> 2, base = addr + 8;
+            var h = Atomics.load(Module.HEAPU32, hIdx);
+            var t = Atomics.load(Module.HEAPU32, tIdx);
+            var avail = (h - t) & RING_MASK;
+            var n = Math.min(avail, maxLen);
+            if (n === 0) return null;
+            var buf = new Uint8Array(n);
+            for (var i = 0; i < n; i++) {
+                buf[i] = Module.HEAPU8[base + ((t + i) & RING_MASK)];
+            }
+            Atomics.store(Module.HEAPU32, tIdx, (t + n) & RING_MASK);
+            return buf;
+        }
+
+        async function ringWriteAll(addr, data) {
+            var off = 0;
+            while (off < data.length) {
+                var n = ringWrite(addr, data.subarray(off));
+                off += n;
+                if (off < data.length) await new Promise(function(r) { setTimeout(r, 5); });
+            }
+        }
+
+        // ================================================================
+        // Protocol helpers
+        // ================================================================
+        function hexdump(data, max) {
+            max = max || 64;
+            var s = '';
+            for (var i = 0; i < Math.min(data.length, max); i++) {
+                s += data[i].toString(16).padStart(2, '0') + ' ';
+            }
+            if (data.length > max) s += '...';
+            return s.trim();
+        }
+
+        function buildQemuPacket(protocol, payload) {
+            var frame = new Uint8Array(8 + payload.length);
+            var dv = new DataView(frame.buffer);
+            dv.setUint16(0, 0xFEED);
+            dv.setUint16(2, protocol);
+            dv.setUint16(4, payload.length);
+            frame.set(payload, 6);
+            dv.setUint16(6 + payload.length, 0xBEEF);
+            return frame;
+        }
+
+        function buildPebbleProtocol(endpoint, data) {
+            var pp = new Uint8Array(4 + data.length);
+            var dv = new DataView(pp.buffer);
+            dv.setUint16(0, data.length);
+            dv.setUint16(2, endpoint);
+            pp.set(data, 4);
+            return pp;
+        }
+
+        async function sendPebbleMessage(endpoint, data) {
+            if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
+            var pp = buildPebbleProtocol(endpoint, data);
+            var frame = buildQemuPacket(1, pp);
+            await ringWriteAll(jsToQemuAddr, frame);
+        }
+
+        // PhoneVersionResponse
+        function buildPhoneVersionResponse() {
+            var buf = new Uint8Array(25);
+            var dv = new DataView(buf.buffer);
+            buf[0] = 0x01;
+            dv.setUint32(1, 0xFFFFFFFF, false);
+            dv.setUint32(5, 0x80000000, false);
+            dv.setUint32(9, 50, false);
+            buf[13] = 2;
+            buf[14] = 3;
+            buf[15] = 0;
+            buf[16] = 0;
+            dv.setUint32(17, 0xFFFFFFFF, false);
+            dv.setUint32(21, 0xFFFFFFFF, false);
+            return buf;
+        }
+
+        // Response parsing
+        var responseBuffer = new Uint8Array(0);
+        var pendingMessages = [];
+
+        function pollResponses() {
+            if (!qemuToJsAddr) return;
+            var chunk = ringRead(qemuToJsAddr, 8192);
+            if (!chunk) return;
+
+            var combined = new Uint8Array(responseBuffer.length + chunk.length);
+            combined.set(responseBuffer);
+            combined.set(chunk, responseBuffer.length);
+            responseBuffer = combined;
+
+            while (responseBuffer.length >= 8) {
+                var dv = new DataView(responseBuffer.buffer,
+                    responseBuffer.byteOffset, responseBuffer.byteLength);
+                if (dv.getUint16(0) !== 0xFEED) {
+                    responseBuffer = responseBuffer.slice(2);
+                    continue;
+                }
+                var proto = dv.getUint16(2);
+                var dataLen = dv.getUint16(4);
+                var totalSize = 6 + dataLen + 2;
+                if (responseBuffer.length < totalSize) break;
+
+                if (dv.getUint16(6 + dataLen) !== 0xBEEF) {
+                    responseBuffer = responseBuffer.slice(2);
+                    continue;
+                }
+
+                var data = responseBuffer.slice(6, 6 + dataLen);
+                responseBuffer = responseBuffer.slice(totalSize);
+
+                if (proto === 1 && data.length >= 4) {
+                    var ppOff = 0;
+                    while (ppOff + 4 <= data.length) {
+                        var ppDv = new DataView(data.buffer, data.byteOffset + ppOff, data.byteLength - ppOff);
+                        var ppLen = ppDv.getUint16(0);
+                        var ppEndpoint = ppDv.getUint16(2);
+                        if (ppOff + 4 + ppLen > data.length) break;
+                        var ppPayload = data.slice(ppOff + 4, ppOff + 4 + ppLen);
+                        ppOff += 4 + ppLen;
+
+                        // Auto-respond to PhoneVersionRequest
+                        if (ppEndpoint === 0x11 && ppPayload.length >= 1 && ppPayload[0] === 0x00) {
+                            log('[serial] PhoneVersionRequest -> sending response');
+                            sendPebbleMessage(0x11, buildPhoneVersionResponse());
+                            continue;
+                        }
+
+                        // Auto-respond to PingPong
+                        if (ppEndpoint === 0x07d1 && ppPayload.length >= 5 && ppPayload[0] === 0x00) {
+                            var pong = new Uint8Array(5);
+                            pong[0] = 0x01;
+                            pong.set(ppPayload.slice(1, 5), 1);
+                            sendPebbleMessage(0x07d1, pong);
+                            continue;
+                        }
+
+                        pendingMessages.push({ endpoint: ppEndpoint, data: ppPayload });
+                    }
+                }
+            }
+        }
+
+        async function waitForResponse(endpoint, timeoutMs) {
+            var deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+                pollResponses();
+                for (var i = 0; i < pendingMessages.length; i++) {
+                    if (pendingMessages[i].endpoint === endpoint) {
+                        return pendingMessages.splice(i, 1)[0].data;
+                    }
+                }
+                await new Promise(function(r) { setTimeout(r, 50); });
+            }
+            throw new Error('Timeout waiting for endpoint 0x' + endpoint.toString(16));
+        }
+
+        // ================================================================
+        // STM32 CRC32
+        // ================================================================
+        function stm32Crc32(data) {
+            var padLen = Math.ceil(data.length / 4) * 4;
+            var padded = new Uint8Array(padLen);
+            padded.set(data);
+            var dv = new DataView(padded.buffer);
+            var crc = 0xFFFFFFFF;
+            for (var i = 0; i < padLen; i += 4) {
+                crc = (crc ^ dv.getUint32(i, true)) >>> 0;
+                for (var j = 0; j < 32; j++) {
+                    if (crc & 0x80000000) crc = ((crc << 1) ^ 0x04C11DB7) >>> 0;
+                    else crc = (crc << 1) >>> 0;
+                }
+            }
+            return crc >>> 0;
+        }
+
+        // ================================================================
+        // PBW Parser
+        // ================================================================
+        async function parsePBW(data) {
+            var zip = await JSZip.loadAsync(data);
+
+            var prefixes = ['emery/', 'basalt/', ''];
+            var manifest = null, prefix = '';
+            for (var p = 0; p < prefixes.length; p++) {
+                var mf = zip.file(prefixes[p] + 'manifest.json');
+                if (mf) {
+                    manifest = JSON.parse(await mf.async('string'));
+                    prefix = prefixes[p];
+                    break;
+                }
+            }
+            if (!manifest) throw new Error('No manifest.json found in PBW');
+
+            var appInfo = manifest.application || manifest.firmware;
+            var appBinPath = prefix + (appInfo.name || 'pebble-app.bin');
+            var appBinary = await zip.file(appBinPath).async('uint8array');
+
+            var hdr = new DataView(appBinary.buffer, appBinary.byteOffset, appBinary.byteLength);
+            var uuid = appBinary.slice(104, 120);
+            var nameBytes = appBinary.slice(24, 56);
+            var name = '';
+            for (var i = 0; i < 32 && nameBytes[i] !== 0; i++) name += String.fromCharCode(nameBytes[i]);
+
+            var result = {
+                uuid: uuid, name: name,
+                flags: hdr.getUint32(96, true),
+                icon: hdr.getUint32(88, true),
+                appVersionMajor: appBinary[12],
+                appVersionMinor: appBinary[13],
+                sdkVersionMajor: appBinary[10],
+                sdkVersionMinor: appBinary[11],
+                binary: appBinary, resources: null, worker: null,
+            };
+
+            if (manifest.resources) {
+                var resFile = zip.file(prefix + manifest.resources.name);
+                if (resFile) result.resources = await resFile.async('uint8array');
+            }
+            if (manifest.worker) {
+                var wkFile = zip.file(prefix + manifest.worker.name);
+                if (wkFile) result.worker = await wkFile.async('uint8array');
+            }
+
+            return result;
+        }
+
+        // ================================================================
+        // Install flow
+        // ================================================================
+        function buildAppMetadata(info) {
+            var meta = new Uint8Array(126);
+            var dv = new DataView(meta.buffer);
+            meta.set(info.uuid, 0);
+            dv.setUint32(16, info.flags, true);
+            dv.setUint32(20, info.icon, true);
+            meta[24] = info.appVersionMajor;
+            meta[25] = info.appVersionMinor;
+            meta[26] = info.sdkVersionMajor;
+            meta[27] = info.sdkVersionMinor;
+            for (var i = 0; i < Math.min(info.name.length, 95); i++) {
+                meta[30 + i] = info.name.charCodeAt(i);
+            }
+            return meta;
+        }
+
+        function buildBlobDBInsert(token, uuid, value) {
+            var buf = new Uint8Array(23 + value.length);
+            var dv = new DataView(buf.buffer);
+            buf[0] = 0x01;
+            dv.setUint16(1, token, true);
+            buf[3] = 0x02;
+            buf[4] = 16;
+            buf.set(uuid, 5);
+            dv.setUint16(21, value.length, true);
+            buf.set(value, 23);
+            return buf;
+        }
+
+        async function putBytesTransfer(data, objectType, appId, label) {
+            log('[install] Transferring ' + label + ' (' + data.length + ' bytes)...');
+
+            // Init
+            var initBuf = new Uint8Array(10);
+            var initDv = new DataView(initBuf.buffer);
+            initBuf[0] = 0x01;
+            initDv.setUint32(1, data.length, false);
+            initBuf[5] = objectType;
+            initDv.setUint32(6, appId, false);
+            await sendPebbleMessage(0xBEEF, initBuf);
+
+            var initResp = await waitForResponse(0xBEEF, 15000);
+            if (initResp[0] !== 0x01) throw new Error('PutBytes init NACK for ' + label);
+            var cookie = new DataView(initResp.buffer, initResp.byteOffset,
+                initResp.byteLength).getUint32(1, false);
+
+            // Put chunks
+            var CHUNK = 2000, sent = 0;
+            while (sent < data.length) {
+                var len = Math.min(CHUNK, data.length - sent);
+                var putBuf = new Uint8Array(9 + len);
+                var putDv = new DataView(putBuf.buffer);
+                putBuf[0] = 0x02;
+                putDv.setUint32(1, cookie, false);
+                putDv.setUint32(5, len, false);
+                putBuf.set(data.subarray(sent, sent + len), 9);
+                await sendPebbleMessage(0xBEEF, putBuf);
+
+                var putResp = await waitForResponse(0xBEEF, 15000);
+                if (putResp[0] !== 0x01) throw new Error('PutBytes put NACK at ' + sent);
+                sent += len;
+            }
+
+            // Commit
+            var crc = stm32Crc32(data);
+            var commitBuf = new Uint8Array(9);
+            var commitDv = new DataView(commitBuf.buffer);
+            commitBuf[0] = 0x03;
+            commitDv.setUint32(1, cookie, false);
+            commitDv.setUint32(5, crc, false);
+            await sendPebbleMessage(0xBEEF, commitBuf);
+            var commitResp = await waitForResponse(0xBEEF, 15000);
+            if (commitResp[0] !== 0x01) throw new Error('PutBytes commit NACK for ' + label);
+
+            // Install
+            var installBuf = new Uint8Array(5);
+            var installDv = new DataView(installBuf.buffer);
+            installBuf[0] = 0x05;
+            installDv.setUint32(1, cookie, false);
+            await sendPebbleMessage(0xBEEF, installBuf);
+            var installResp = await waitForResponse(0xBEEF, 15000);
+            if (installResp[0] !== 0x01) throw new Error('PutBytes install NACK for ' + label);
+            log('[install] ' + label + ' transferred OK');
+        }
+
+        var installing = false;
+
+        async function installPBW(file) {
+            if (installing) return;
+            installing = true;
+            installBtn.disabled = true;
+            installStatus.textContent = 'Reading file...';
+            setProgress(0);
+
+            try {
+                var pbwData = await file.arrayBuffer();
+                var pbw = await parsePBW(pbwData);
+                log('[install] App: "' + pbw.name + '" Binary: ' + pbw.binary.length +
+                    (pbw.resources ? ', Resources: ' + pbw.resources.length : '') +
+                    (pbw.worker ? ', Worker: ' + pbw.worker.length : ''));
+
+                // Count total bytes for progress
+                var totalBytes = pbw.binary.length +
+                    (pbw.resources ? pbw.resources.length : 0) +
+                    (pbw.worker ? pbw.worker.length : 0);
+
+                // 1. BlobDB Insert
+                installStatus.textContent = 'Registering app...';
+                setProgress(5);
+                var token = (Math.random() * 65534 + 1) | 0;
+                var metadata = buildAppMetadata(pbw);
+                var blobCmd = buildBlobDBInsert(token, pbw.uuid, metadata);
+                await sendPebbleMessage(0xb1db, blobCmd);
+
+                var blobResp = await waitForResponse(0xb1db, 10000);
+                if (blobResp[2] !== 0x01) throw new Error('BlobDB insert failed: status=' + blobResp[2]);
+                log('[install] BlobDB insert OK');
+
+                await new Promise(function(r) { setTimeout(r, 1000); });
+
+                // 2. AppRunState Start
+                installStatus.textContent = 'Starting app install...';
+                setProgress(10);
+                var runCmd = new Uint8Array(17);
+                runCmd[0] = 0x01;
+                runCmd.set(pbw.uuid, 1);
+                await sendPebbleMessage(0x34, runCmd);
+
+                // 3. Wait for AppFetchRequest
+                installStatus.textContent = 'Waiting for firmware...';
+                var fetchReq = await waitForResponse(0x1771, 60000);
+                var fetchDv = new DataView(fetchReq.buffer, fetchReq.byteOffset, fetchReq.byteLength);
+                var appId = fetchDv.getUint32(17, true);
+                log('[install] AppFetchRequest received, app_id=' + appId);
+
+                // 4. AppFetchResponse
+                var fetchResp = new Uint8Array(2);
+                fetchResp[0] = 0x01;
+                fetchResp[1] = 0x01;
+                await sendPebbleMessage(0x1771, fetchResp);
+                await new Promise(function(r) { setTimeout(r, 500); });
+
+                // 5. PutBytes
+                installStatus.textContent = 'Transferring binary...';
+                setProgress(15);
+                await putBytesTransfer(pbw.binary, 0x85, appId, 'binary');
+
+                if (pbw.resources) {
+                    installStatus.textContent = 'Transferring resources...';
+                    setProgress(50);
+                    await putBytesTransfer(pbw.resources, 0x84, appId, 'resources');
+                }
+
+                if (pbw.worker) {
+                    installStatus.textContent = 'Transferring worker...';
+                    setProgress(85);
+                    await putBytesTransfer(pbw.worker, 0x87, appId, 'worker');
+                }
+
+                setProgress(100);
+                installStatus.textContent = 'Install complete!';
+                log('[install] === INSTALL COMPLETE ===');
+                setTimeout(function() { setProgress(-1); installStatus.textContent = ''; }, 3000);
+
+            } catch(e) {
+                log('[install] ERROR: ' + e.message);
+                installStatus.textContent = 'Error: ' + e.message;
+                setProgress(-1);
+            } finally {
+                installing = false;
+                installBtn.disabled = !serialReady;
+                fileInput.value = '';
+            }
+        }
+
+        // ================================================================
+        // Button input
+        // ================================================================
+        var buttonState = 0;
+        var buttonAddrPtr = 0;
+
+        function setButton(bit, pressed) {
+            if (pressed) buttonState |= (1 << bit);
+            else buttonState &= ~(1 << bit);
+            if (buttonAddrPtr) {
+                Atomics.store(Module.HEAPU32, buttonAddrPtr >> 2, buttonState);
+            }
+        }
+
+        // Mouse/touch buttons
+        document.querySelectorAll('.btn[data-button]').forEach(function(btn) {
+            var bit = parseInt(btn.dataset.button);
+            btn.addEventListener('mousedown', function(e) { e.preventDefault(); setButton(bit, true); btn.classList.add('active'); });
+            btn.addEventListener('mouseup', function() { setButton(bit, false); btn.classList.remove('active'); });
+            btn.addEventListener('mouseleave', function() { setButton(bit, false); btn.classList.remove('active'); });
+            btn.addEventListener('touchstart', function(e) { e.preventDefault(); setButton(bit, true); btn.classList.add('active'); });
+            btn.addEventListener('touchend', function() { setButton(bit, false); btn.classList.remove('active'); });
+        });
+
+        // Keyboard
+        var keyMap = { ArrowLeft: 0, ArrowUp: 1, Enter: 2, ArrowDown: 3 };
+        document.addEventListener('keydown', function(e) {
+            if (e.key in keyMap) { e.preventDefault(); setButton(keyMap[e.key], true); }
+        });
+        document.addEventListener('keyup', function(e) {
+            if (e.key in keyMap) { e.preventDefault(); setButton(keyMap[e.key], false); }
+        });
+
+        // File input
+        installBtn.addEventListener('click', function() { fileInput.click(); });
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length > 0) installPBW(fileInput.files[0]);
+        });
+
+        // ================================================================
+        // Display render loop
+        // ================================================================
+        var canvasCtx = document.getElementById('canvas').getContext('2d');
+        var lastFrameCount = 0;
+        var cachedImgData = null;
+
+        function renderFrame() {
+            try {
+                var fc = Module._pebble_display_frame_count();
+                if (fc !== lastFrameCount) {
+                    lastFrameCount = fc;
+                    var width = Module._pebble_display_width();
+                    var height = Module._pebble_display_height();
+                    var stride = Module._pebble_display_stride();
+                    var dataPtr = Module._pebble_display_data();
+                    if (dataPtr && width && height) {
+                        if (!cachedImgData || cachedImgData.width !== width || cachedImgData.height !== height) {
+                            cachedImgData = canvasCtx.createImageData(width, height);
+                        }
+                        var dst32 = new Uint32Array(cachedImgData.data.buffer);
+                        var heap = Module.HEAPU8;
+                        for (var y = 0; y < height; y++) {
+                            var rowSrc = dataPtr + y * stride;
+                            var rowDst = y * width;
+                            for (var x = 0; x < width; x++) {
+                                var s = rowSrc + x * 4;
+                                dst32[rowDst + x] = heap[s+2] | (heap[s+1] << 8) | (heap[s] << 16) | 0xFF000000;
+                            }
+                        }
+                        canvasCtx.putImageData(cachedImgData, 0, 0);
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // ================================================================
+        // Main
+        // ================================================================
+        var serialReady = false;
+
+        async function main() {
+            await boot();
+
+            loadingText.textContent = 'Starting QEMU...';
+            while (!runtimeReady) await new Promise(function(r) { setTimeout(r, 500); });
+
+            // Init ring buffers
+            loadingText.textContent = 'Initializing serial...';
+            while (true) {
+                try {
+                    if (Module._pebble_serial_js_to_qemu_addr) {
+                        jsToQemuAddr = Module._pebble_serial_js_to_qemu_addr();
+                        qemuToJsAddr = Module._pebble_serial_qemu_to_js_addr();
+                        if (jsToQemuAddr && qemuToJsAddr) {
+                            log('[main] Ring buffers initialized');
+                            break;
+                        }
+                    }
+                } catch(e) {}
+                await new Promise(function(r) { setTimeout(r, 1000); });
+            }
+
+            // Init button state address
+            try {
+                buttonAddrPtr = Module._pebble_button_state_addr();
+                log('[main] Button input initialized');
+            } catch(e) {
+                log('[main] Button input not available');
+            }
+
+            // Start background polling for firmware messages
+            setInterval(pollResponses, 100);
+
+            // Start display render loop
+            setInterval(renderFrame, 50);
+
+            // Wait for firmware to boot
+            loadingText.textContent = 'Booting PebbleOS...';
+            while (true) {
+                try {
+                    var fc = Module._pebble_display_frame_count();
+                    if (fc > 10) break;
+                } catch(e) {}
+                await new Promise(function(r) { setTimeout(r, 2000); });
+            }
+
+            // Send BluetoothConnection (protocol 3, connected=true)
+            log('[main] Sending BluetoothConnection');
+            var btFrame = buildQemuPacket(3, new Uint8Array([0x01]));
+            await ringWriteAll(jsToQemuAddr, btFrame);
+            await new Promise(function(r) { setTimeout(r, 1000); });
+
+            // Send WatchVersionRequest to trigger firmware handshake
+            log('[main] Sending WatchVersionRequest');
+            await sendPebbleMessage(0x10, new Uint8Array([0x00]));
+            try {
+                await waitForResponse(0x10, 10000);
+                log('[main] WatchVersionResponse received');
+            } catch(e) {
+                log('[main] WatchVersionResponse timeout (continuing)');
+            }
+
+            // Wait for firmware services
+            await new Promise(function(r) { setTimeout(r, 2000); });
+
+            // Ready!
+            loadingEl.classList.add('hidden');
+            serialReady = true;
+            installBtn.disabled = false;
+            log('[main] Ready - firmware booted, install enabled');
+        }
+
+        main().catch(function(e) {
+            log('[fatal] ' + e.message);
+            loadingText.textContent = 'Error: ' + e.message;
+        });
+    })();
+    </script>
+</body>
+</html>

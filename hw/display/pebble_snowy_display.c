@@ -66,6 +66,7 @@
 #include "hw/core/cpu.h"
 #include "pebble_snowy_display.h"
 #include "pebble_snowy_display_overlays.h"
+#include "hw/arm/pebble_compat.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -1193,9 +1194,9 @@ static const Property ps_display_init_properties[] = {
 
 // -----------------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
-static void ps_display_class_init(ObjectClass *klass, void *data)
+static void ps_display_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 #else
-static void ps_display_class_init(ObjectClass *klass, void *data)
+static void ps_display_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 #endif
 {
     DeviceClass *dc = DEVICE_CLASS(klass);

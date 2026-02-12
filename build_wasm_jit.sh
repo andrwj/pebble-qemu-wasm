@@ -51,6 +51,7 @@ cd /qemu-rw
 mkdir -p include/hw/arm
 cp /pebble/include/hw/arm/stm32_common.h include/hw/arm/
 cp /pebble/include/hw/arm/pebble.h include/hw/arm/
+cp /pebble/include/hw/arm/pebble_compat.h include/hw/arm/
 cp /pebble/include/hw/arm/stm32_clktree.h include/hw/arm/
 
 # Copy Pebble hw source files

@@ -30,6 +30,7 @@
 #include "exec/address-spaces.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 ////#define DEBUG_STM32F2XX_DMA
 #ifdef DEBUG_STM32F2XX_DMA
@@ -414,7 +415,7 @@ f2xx_dma_reset(DeviceState *ds)
 }
 
 static void
-f2xx_dma_class_init(ObjectClass *klass, void *data)
+f2xx_dma_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = f2xx_dma_realize;

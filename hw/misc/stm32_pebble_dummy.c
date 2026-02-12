@@ -28,6 +28,7 @@
 #include "hw/qdev-properties.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 typedef struct f2xx_dummy {
     SysBusDevice parent_obj;
@@ -83,7 +84,7 @@ static const Property f2xx_dummy_properties[] = {
 };
 
 static void
-f2xx_dummy_class_init(ObjectClass *klass, void *data)
+f2xx_dummy_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = f2xx_dummy_realize;

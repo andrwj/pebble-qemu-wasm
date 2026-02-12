@@ -302,7 +302,7 @@ f2xx_tim_realize(DeviceState *dev, Error **errp)
 }
 
 static void
-f2xx_tim_class_init(ObjectClass *klass, void *data)
+f2xx_tim_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = f2xx_tim_realize;

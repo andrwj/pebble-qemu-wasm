@@ -170,13 +170,8 @@ static void stm32_uart_receive(void *opaque, const uint8_t *buf, int size)
     assert(size > 0);
 
     if (!s->USART_CR1_UE || !s->USART_CR1_RE) {
-        if (s->periph == STM32_UART2) {
-            printf("UART2_RCV: Dropping %d chars, UART not enabled (UE=%d RE=%d)\n",
-                    size, s->USART_CR1_UE, s->USART_CR1_RE);
-        }
         return;
     }
-    (void)0; /* debug removed */
 
     /* Buffer all incoming bytes first */
     assert(size <= USART_RCV_BUF_LEN - s->rcv_char_bytes);
@@ -413,7 +408,7 @@ static const Property stm32_uart_properties[] = {
     DEFINE_PROP_CHR("chardev", Stm32Uart, chr),
 };
 
-static void stm32_uart_class_init(ObjectClass *klass, void *data)
+static void stm32_uart_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

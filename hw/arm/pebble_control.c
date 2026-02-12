@@ -269,11 +269,6 @@ static void pebble_control_forward_to_target(PebbleControl *s)
     int can_read_bytes = s->uart_chr_can_read(s->uart);
     if (can_read_bytes > 0) {
         can_read_bytes = MIN(can_read_bytes, s->target_send_bytes);
-#ifdef __EMSCRIPTEN__
-        printf("PEBBLE_CONTROL: forward_to_target: sending %d bytes to UART "
-               "(can_read=%d, remaining=%d)\n",
-               can_read_bytes, can_read_bytes, s->target_send_bytes - can_read_bytes);
-#endif
         s->uart_chr_read(s->uart, s->rcv_char_buf, can_read_bytes);
         pebble_control_consume_rcv_bytes(s, can_read_bytes);
         s->target_send_bytes -= can_read_bytes;
@@ -330,10 +325,6 @@ static void pebble_control_parse_receive_buffer(PebbleControl *s)
         uint16_t protocol = ntohs(hdr->protocol);
         const PebbleControlMessageHandler* handler = pebble_control_find_handler(s, protocol);
         if (!handler) {
-#ifdef __EMSCRIPTEN__
-            printf("PEBBLE_CONTROL: parse_rcv: forwarding proto=%d (%d bytes) to UART\n",
-                   protocol, total_size);
-#endif
             DPRINTF("%s: passing packet with protocol %d (%d bytes) onto target\n",
                    __func__, protocol, total_size);
             s->target_send_bytes = total_size;
@@ -615,12 +606,6 @@ static int pebble_control_write_wasm(void *opaque, const uint8_t *buf, int len) 
         }
 
         /* Write complete packet to ring buffer for JavaScript */
-        {
-            QemuCommChannelHdr *shdr = (QemuCommChannelHdr *)s->send_char_buf;
-            printf("PEBBLE_CONTROL: write_wasm: complete packet proto=%d len=%d, "
-                   "writing %d bytes to ring\n",
-                   ntohs(shdr->protocol), ntohs(shdr->len), total_size);
-        }
         uint32_t written = ring_write(&qemu_to_js_ring, s->send_char_buf, total_size);
         if (written < total_size) {
             EPRINTF("%s: qemu_to_js ring full, dropped %d bytes\n",
@@ -634,29 +619,13 @@ static int pebble_control_write_wasm(void *opaque, const uint8_t *buf, int len) 
 
 /* Timer callback: polls js_to_qemu ring buffer and feeds data into
  * pebble_control_receive(), same path as chardev data. */
-static uint32_t s_poll_count = 0;
 static void pebble_wasm_serial_poll(void *opaque)
 {
     PebbleControl *s = (PebbleControl *)opaque;
-    s_poll_count++;
-
-    /* Heartbeat every 5000 invocations (~5s of virtual time) */
-    if ((s_poll_count % 5000) == 0) {
-        uint32_t h = __atomic_load_n(&js_to_qemu_ring.head, __ATOMIC_ACQUIRE);
-        uint32_t t = __atomic_load_n(&js_to_qemu_ring.tail, __ATOMIC_ACQUIRE);
-        printf("PEBBLE_CONTROL: poll heartbeat #%d, ring h=%d t=%d avail=%d, "
-               "clock=%lld\n",
-               s_poll_count, h, t, (h - t) & RING_MASK,
-               (long long)qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL));
-    }
 
     uint8_t tmp[512];
     uint32_t n = ring_read(&js_to_qemu_ring, tmp, sizeof(tmp));
     if (n > 0) {
-        printf("PEBBLE_CONTROL: wasm_poll: read %d bytes from ring (poll#%d), first:",
-               n, s_poll_count);
-        for (uint32_t di = 0; di < n && di < 32; di++) printf(" %02x", tmp[di]);
-        printf("\n");
         pebble_control_receive(s, tmp, n);
     }
 

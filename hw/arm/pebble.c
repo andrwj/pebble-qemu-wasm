@@ -339,7 +339,7 @@ static void pebble_board_realize(DeviceState *dev, Error **errp)
                             "pebble_board_vibe_in", 1);
 }
 
-static void pebble_board_class_init(ObjectClass *klass, void *data)
+static void pebble_board_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = pebble_board_realize;
@@ -452,6 +452,8 @@ void pebble_32f439_init(MachineState *machine,
         BlockBackend *blk = blk_by_name("spi-flash");
         if (!blk) {
             fprintf(stderr, "WARNING: pflash drive 'spi-flash' not found, flash will be empty\n");
+        } else {
+            fprintf(stderr, "PEBBLE: SPI flash drive 'spi-flash' found\n");
         }
         pflash_jedec_424_register(0x60000000,
                                   "pebble.spi_flash",

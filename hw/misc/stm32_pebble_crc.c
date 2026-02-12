@@ -28,6 +28,7 @@
 #include "hw/qdev-properties.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 #define R_CRC_DR            (0x00 / 4)
 #define R_CRC_DR_RESET 0xffffffff
@@ -207,7 +208,7 @@ f2xx_crc_reset(DeviceState *ds)
 
 
 static void
-f2xx_crc_class_init(ObjectClass *klass, void *data)
+f2xx_crc_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = f2xx_crc_realize;

@@ -30,6 +30,7 @@
 #include "chardev/char-fe.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 #define USART_SR   0x00
 #define USART_DR   0x04
@@ -256,7 +257,7 @@ static Property stm32f2xx_usart_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
-static void stm32f2xx_usart_class_init(ObjectClass *klass, void *data)
+static void stm32f2xx_usart_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

@@ -36,6 +36,7 @@
 #include "migration/vmstate.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 /* Forward declaration of the type used externally */
 typedef struct f2xx_flash f2xx_flash_t;
@@ -125,7 +126,7 @@ static const Property f2xx_flash_properties[] = {
     DEFINE_PROP_UINT64("base_address", struct f2xx_flash, base_address, 0x08000000),
 };
 
-static void f2xx_flash_class_init(ObjectClass *klass, void *data)
+static void f2xx_flash_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

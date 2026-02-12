@@ -39,6 +39,7 @@
 #include "qemu/module.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
+#include "hw/arm/pebble_compat.h"
 
 #define PFLASH_BUG(fmt, ...) \
 do { \
@@ -824,7 +825,7 @@ static const Property pflash_jedec_properties[] = {
     DEFINE_PROP_STRING("name", PFlashJEDEC424, name),
 };
 
-static void pflash_jedec_class_init(ObjectClass *klass, const void *data)
+static void pflash_jedec_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

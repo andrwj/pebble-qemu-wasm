@@ -30,6 +30,7 @@
 #include "hw/qdev-properties.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
+#include "hw/arm/pebble_compat.h"
 
 /* Per-ADC registers */
 #define R_ADC_SR             (0x00 / 4)
@@ -223,7 +224,7 @@ stm32f2xx_adc_realize(DeviceState *dev, Error **errp)
 
 
 static void
-stm32f2xx_adc_class_init(ObjectClass *klass, void *data)
+stm32f2xx_adc_class_init(ObjectClass *klass, CLASS_DATA_VOID_PTR *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

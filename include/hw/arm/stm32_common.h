@@ -34,6 +34,8 @@
 #include "chardev/char-fe.h"
 
 
+#include "hw/arm/pebble_compat.h"
+
 #define ENUM_STRING(x) [x] = #x
 #define ARRAY_LENGTH(array) (sizeof((array))/sizeof((array)[0]))
 

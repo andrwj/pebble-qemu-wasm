@@ -254,8 +254,11 @@
                             ' ppLen=' + ppLen + ' payload=' + hexdump(ppPayload, 32));
 
                         // Auto-respond to PhoneVersionRequest (endpoint 0x11, cmd 0x00)
+                        // ALWAYS respond — firmware expects response to its explicit request,
+                        // even if we sent a proactive response earlier (which may have been
+                        // received before UART was ready)
                         if (ppEndpoint === 0x11 && ppPayload.length >= 1 &&
-                            ppPayload[0] === 0x00 && !phoneVersionSent) {
+                            ppPayload[0] === 0x00) {
                             phoneVersionSent = true;
                             log('[serial] PhoneVersionRequest received, sending response');
                             sendPebbleMessage(0x11, buildPhoneVersionResponse());
@@ -346,6 +349,7 @@
                 }
             }
             if (!manifest) throw new Error('No manifest.json');
+            log('[pbw] Using prefix: "' + prefix + '"');
             log('[pbw] Manifest: ' + JSON.stringify(manifest, null, 2));
 
             var appInfo = manifest.application || manifest.firmware;
@@ -529,6 +533,9 @@
             fetchResp[1] = 0x01;
             await sendPebbleMessage(0x1771, fetchResp);
 
+            // Wait for firmware to process AppFetchResponse
+            await new Promise(function(r) { setTimeout(r, 500); });
+
             // 5. PutBytes
             log('[install] === Step 5: PutBytes binary ===');
             await putBytesTransfer(pbw.binary, 0x85, appId, 'binary');
@@ -572,6 +579,7 @@
             }
 
             // Start background polling to catch any unsolicited messages
+            // (PhoneVersionRequest auto-responder handles it when firmware asks)
             startBackgroundPoll();
 
             // Start display render loop
@@ -623,6 +631,17 @@
                 await new Promise(function(r) { setTimeout(r, 2000); });
             }
 
+            // Send BluetoothConnection (protocol 3, connected=true) — pypkjs sends
+            // this after connecting to tell firmware that a phone is BT-connected.
+            // This is a QEMU protocol frame (not SPP/Pebble Protocol), forwarded
+            // directly to the firmware's UART.
+            log('[main] Sending BluetoothConnection (connected=true)...');
+            var btFrame = buildQemuPacket(3, new Uint8Array([0x01]));
+            await ringWriteAll(jsToQemuAddr, btFrame);
+
+            // Small delay for firmware to process BT connection
+            await new Promise(function(r) { setTimeout(r, 1000); });
+
             // Send WatchVersionRequest (endpoint 0x10, cmd 0x00) — pebble-tool does this
             // before any install, and blocks until response. Firmware may need this.
             log('[main] Sending WatchVersionRequest...');
@@ -634,9 +653,9 @@
                 log('[main] WatchVersionResponse timeout (continuing anyway)');
             }
 
-            // Wait for firmware services
-            log('[main] Waiting 3s for firmware services...');
-            await new Promise(function(r) { setTimeout(r, 3000); });
+            // Wait for firmware services to fully initialize
+            log('[main] Waiting 2s for firmware services...');
+            await new Promise(function(r) { setTimeout(r, 2000); });
 
             // Install
             try {

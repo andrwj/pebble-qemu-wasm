@@ -19,6 +19,7 @@ echo "=== Overlaying Pebble files onto QEMU 10.0 ==="
 mkdir -p "${QEMU_SRC}/include/hw/arm"
 cp "${SCRIPT_DIR}/include/hw/arm/stm32_common.h" "${QEMU_SRC}/include/hw/arm/"
 cp "${SCRIPT_DIR}/include/hw/arm/pebble.h" "${QEMU_SRC}/include/hw/arm/"
+cp "${SCRIPT_DIR}/include/hw/arm/pebble_compat.h" "${QEMU_SRC}/include/hw/arm/"
 cp "${SCRIPT_DIR}/include/hw/arm/stm32_clktree.h" "${QEMU_SRC}/include/hw/arm/"
 
 # Copy include/hw/block headers
