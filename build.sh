@@ -21,8 +21,14 @@ cp "${SCRIPT_DIR}/include/hw/arm/stm32_common.h" "${QEMU_SRC}/include/hw/arm/"
 cp "${SCRIPT_DIR}/include/hw/arm/pebble.h" "${QEMU_SRC}/include/hw/arm/"
 cp "${SCRIPT_DIR}/include/hw/arm/stm32_clktree.h" "${QEMU_SRC}/include/hw/arm/"
 
+# Copy include/hw/block headers
+mkdir -p "${QEMU_SRC}/include/hw/block"
+for f in "${SCRIPT_DIR}/include/hw/block"/*; do
+    [ -f "$f" ] && cp "$f" "${QEMU_SRC}/include/hw/block/" && echo "  -> include/hw/block/$(basename "$f")"
+done
+
 # Copy hw source files (including headers in source dirs)
-for dir in arm misc char ssi timer dma display gpio; do
+for dir in arm misc char ssi timer dma display gpio block; do
     if [ -d "${SCRIPT_DIR}/hw/${dir}" ]; then
         mkdir -p "${QEMU_SRC}/hw/${dir}"
         for f in "${SCRIPT_DIR}/hw/${dir}"/*; do
@@ -122,6 +128,10 @@ patch_meson "${QEMU_SRC}/hw/display/meson.build" "pebble_snowy" \
 # hw/gpio/meson.build
 patch_meson "${QEMU_SRC}/hw/gpio/meson.build" "stm32_pebble" \
 "system_ss.add(when: 'CONFIG_PEBBLE', if_true: files('stm32_pebble_gpio.c'))"
+
+# hw/block/meson.build - Pebble's custom Jedec 42.4 flash (per-bank command states)
+patch_meson "${QEMU_SRC}/hw/block/meson.build" "pflash_jedec_424" \
+"system_ss.add(when: 'CONFIG_PEBBLE', if_true: files('pflash_jedec_424.c'))"
 
 # hw/char/meson.build - Pebble's own UART (type "stm32-uart", no conflict
 # with mainline's "stm32f2xx-usart"). Do NOT include stm32_pebble_usart.c

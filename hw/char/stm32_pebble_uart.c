@@ -56,7 +56,7 @@
 #define USART_CR1_TE_BIT     3
 #define USART_CR1_RE_BIT     2
 
-#define USART_RCV_BUF_LEN 256
+#define USART_RCV_BUF_LEN 4096
 
 struct Stm32Uart {
     /* Inherited */
@@ -170,12 +170,13 @@ static void stm32_uart_receive(void *opaque, const uint8_t *buf, int size)
     assert(size > 0);
 
     if (!s->USART_CR1_UE || !s->USART_CR1_RE) {
-        DPRINTF("Dropping %d chars, UART not enabled (UE=%d RE=%d)\n",
-                size, s->USART_CR1_UE, s->USART_CR1_RE);
+        if (s->periph == STM32_UART2) {
+            printf("UART2_RCV: Dropping %d chars, UART not enabled (UE=%d RE=%d)\n",
+                    size, s->USART_CR1_UE, s->USART_CR1_RE);
+        }
         return;
     }
-    DPRINTF("receive %d bytes, RXNE=%d, buf_bytes=%d, first=0x%02x\n",
-            size, s->USART_SR_RXNE, s->rcv_char_bytes, buf[0]);
+    (void)0; /* debug removed */
 
     /* Buffer all incoming bytes first */
     assert(size <= USART_RCV_BUF_LEN - s->rcv_char_bytes);
@@ -218,6 +219,7 @@ static uint64_t stm32_uart_read(void *opaque, hwaddr offset, unsigned size)
         stm32_uart_fill_rdr(s);
         stm32_uart_update_irq(s);
         qemu_chr_fe_accept_input(&s->chr);
+        (void)0; /* debug removed */
         return value & 0x1FF;
 
     case USART_BRR_OFFSET:
@@ -262,6 +264,7 @@ static void stm32_uart_write(void *opaque, hwaddr offset,
 
     case USART_DR_OFFSET: {
         uint8_t ch = value & 0xFF;
+        (void)0; /* debug removed */
         if (s->chr_write_obj && s->chr_write) {
             s->chr_write(s->chr_write_obj, &ch, 1);
         }
@@ -410,7 +413,7 @@ static const Property stm32_uart_properties[] = {
     DEFINE_PROP_CHR("chardev", Stm32Uart, chr),
 };
 
-static void stm32_uart_class_init(ObjectClass *klass, const void *data)
+static void stm32_uart_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 

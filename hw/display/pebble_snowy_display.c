@@ -1193,9 +1193,9 @@ static const Property ps_display_init_properties[] = {
 
 // -----------------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
-static void ps_display_class_init(ObjectClass *klass, const void *data)
+static void ps_display_class_init(ObjectClass *klass, void *data)
 #else
-static void ps_display_class_init(ObjectClass *klass, const void *data)
+static void ps_display_class_init(ObjectClass *klass, void *data)
 #endif
 {
     DeviceClass *dc = DEVICE_CLASS(klass);

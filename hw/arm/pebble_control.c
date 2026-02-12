@@ -32,7 +32,7 @@
 #include "pebble_control.h"
 #include "hw/arm/pebble.h"
 
-//#define DEBUG_PEBBLE_CONTROL
+/* #define DEBUG_PEBBLE_CONTROL */
 #ifdef DEBUG_PEBBLE_CONTROL
 #define DPRINTF(fmt, ...)                                 \
     do { printf("PEBBLE_CONTROL: " fmt , ## __VA_ARGS__); \
@@ -279,7 +279,7 @@ static void pebble_control_forward_to_target(PebbleControl *s)
     // If more data to send, set a timer so we run again later
     if (s->target_send_bytes) {
         DPRINTF("%s: Scheduling pebble_control_forward_to_target timer\n", __func__);
-        timer_mod(s->target_send_timer,  qemu_clock_get_ms(QEMU_CLOCK_HOST) + 1);
+        timer_mod(s->target_send_timer,  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
     }
 }
 
@@ -455,6 +455,16 @@ static int pebble_control_write(void *opaque, const uint8_t *buf, int len) {
         int bytes_sent;
         DPRINTF("%s: Sending packet of %d bytes to host (proto=0x%04x)\n",
                __func__, total_size, ntohs(hdr->protocol));
+#ifdef DEBUG_PEBBLE_CONTROL
+        {
+            printf("PEBBLE_CONTROL: %s: send hex:", __func__);
+            for (uint32_t di = 0; di < total_size && di < 48; di++) {
+                printf(" %02x", s->send_char_buf[di]);
+            }
+            if (total_size > 48) printf(" ...");
+            printf("\n");
+        }
+#endif
         while (total_size) {
             bytes_sent = qemu_chr_fe_write_all(&s->chr, s->send_char_buf, total_size);
             if (bytes_sent <= 0) {
@@ -518,7 +528,7 @@ PebbleControl *pebble_control_create(Chardev *chr, Stm32Uart *uart)
         s->uart = uart;
 
         // The timer we use to pump more data to the uart
-        s->target_send_timer = timer_new_ms(QEMU_CLOCK_HOST,
+        s->target_send_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                   (QEMUTimerCB *)pebble_control_parse_receive_buffer, s);
 
         // Have the UART send writes to us

@@ -44,6 +44,7 @@
 #include "hw/sysbus.h"
 #include "hw/ssi/ssi.h"
 #include "hw/block/flash.h"
+#include "hw/block/pflash_jedec_424.h"
 #include "hw/loader.h"
 #include "hw/arm/boot.h"
 #include "hw/arm/stm32_common.h"
@@ -338,7 +339,7 @@ static void pebble_board_realize(DeviceState *dev, Error **errp)
                             "pebble_board_vibe_in", 1);
 }
 
-static void pebble_board_class_init(ObjectClass *klass, const void *data)
+static void pebble_board_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = pebble_board_realize;
@@ -439,32 +440,31 @@ void pebble_32f439_init(MachineState *machine,
     pebble_set_qemu_settings(rtc_dev);
 
     /* Storage flash (NOR-flash on Snowy/Emery) - 16MB at 0x60000000.
-     * Use pflash_cfi02 (AMD/JEDEC compatible) to emulate Macronix MX29VS128FB.
+     * Uses pflash_jedec_424 with per-bank command states to emulate
+     * Macronix MX29VS128FB (8 banks of 2MB each). Per-bank states allow
+     * firmware to write to one bank while reading from another.
      * Pass via: -drive if=none,id=spi-flash,file=firmware/qemu_spi_flash.bin,format=raw
      */
     {
         const uint32_t flash_size_bytes = 16 * 1024 * 1024;
         const uint32_t sector_size = 32 * 1024;
+        const uint32_t bank_size = 2 * 1024 * 1024;  /* 2MB per bank */
         BlockBackend *blk = blk_by_name("spi-flash");
         if (!blk) {
             fprintf(stderr, "WARNING: pflash drive 'spi-flash' not found, flash will be empty\n");
-        } else {
-            fprintf(stderr, "DEBUG: pflash drive 'spi-flash' found\n");
         }
-        pflash_cfi02_register(0x60000000,
-                              "pebble.spi_flash",
-                              flash_size_bytes,
-                              blk,
-                              sector_size,
-                              1,      /* nb_mappings */
-                              2,      /* width (16-bit) */
-                              0x00c2, /* id0: Macronix */
-                              0x007e, /* id1 */
-                              0x0065, /* id2 */
-                              0x0001, /* id3 */
-                              0x555,  /* unlock_addr0 */
-                              0x2AA,  /* unlock_addr1 */
-                              0);     /* big_endian = false */
+        pflash_jedec_424_register(0x60000000,
+                                  "pebble.spi_flash",
+                                  flash_size_bytes,
+                                  blk,
+                                  sector_size,
+                                  bank_size,
+                                  2,      /* width (16-bit) */
+                                  0x00c2, /* id0: Macronix */
+                                  0x007e, /* id1 */
+                                  0x0065, /* id2 */
+                                  0x0001, /* id3 */
+                                  0);     /* big_endian = false */
     }
 
     /* === Display === */
