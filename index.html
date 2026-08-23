@@ -1,1220 +1,419 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pebble Emulator</title>
-    <script src="coi-serviceworker.min.js"></script>
-    <script src="web/jszip.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #1a1a2e;
-            color: #e0e0e0;
-            font-family: monospace;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        h1 { margin-bottom: 10px; font-size: 18px; }
-        #status {
-            margin-bottom: 10px;
-            padding: 5px 10px;
-            background: #16213e;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        #progress-bar {
-            width: 400px;
-            height: 6px;
-            background: #16213e;
-            border-radius: 3px;
-            margin-bottom: 15px;
-            overflow: hidden;
-            display: none;
-        }
-        #progress-fill {
-            height: 100%;
-            background: #4cc9f0;
-            border-radius: 3px;
-            width: 0%;
-            transition: width 0.2s;
-        }
-        #display-wrapper {
-            position: relative;
-            margin-bottom: 15px;
-        }
-        canvas#canvas {
-            image-rendering: pixelated;
-            border: 2px solid #333;
-            border-radius: 8px;
-            width: 200px;
-            height: 228px;
-        }
-        #buttons {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        #buttons button {
-            padding: 8px 16px;
-            background: #16213e;
-            color: #e0e0e0;
-            border: 1px solid #444;
-            border-radius: 4px;
-            cursor: pointer;
-            font-family: monospace;
-            font-size: 14px;
-            user-select: none;
-        }
-        #buttons button:active, #buttons button.pressed { background: #0f3460; }
-        #buttons button:hover { border-color: #888; }
-        #console-wrapper {
-            width: 600px;
-            max-height: 300px;
-        }
-        #console-wrapper h3 {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 5px;
-        }
-        #console {
-            width: 100%;
-            height: 250px;
-            background: #0a0a0a;
-            color: #0f0;
-            font-size: 12px;
-            padding: 8px;
-            overflow-y: auto;
-            border: 1px solid #333;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .key-hint {
-            font-size: 11px;
-            color: #666;
-            margin-top: 5px;
-        }
-        #controls {
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-        }
-        #controls select, #controls button {
-            background: #16213e;
-            color: #e0e0e0;
-            border: 1px solid #444;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 14px;
-        }
-        #controls select { padding: 4px 8px; }
-        #controls button { padding: 4px 12px; cursor: pointer; }
-        #controls button:hover { border-color: #888; }
-        #controls button:disabled { opacity: 0.5; cursor: default; }
-        #btn-boot {
-            background: linear-gradient(135deg, #ff6b35, #e91e63, #9c27b0) !important;
-            color: #fff !important;
-            border: none !important;
-            padding: 6px 18px !important;
-            font-size: 15px !important;
-            font-weight: bold;
-            letter-spacing: 0.5px;
-            box-shadow: 0 2px 8px rgba(233, 30, 99, 0.4);
-            transition: transform 0.1s, box-shadow 0.1s;
-        }
-        #btn-boot:hover:not(:disabled) {
-            transform: scale(1.05);
-            box-shadow: 0 4px 14px rgba(233, 30, 99, 0.6);
-        }
-        #btn-boot:active:not(:disabled) { transform: scale(0.97); }
-        #btn-boot:disabled { opacity: 0.5; filter: grayscale(0.4); }
-        @media (max-width: 640px) {
-            body { padding: 12px 8px; }
-            h1 { font-size: 16px; }
-            #controls { flex-wrap: wrap; justify-content: center; }
-            #progress-bar { width: 100%; }
-            #console-wrapper { width: 100%; }
-            #console { height: 150px; font-size: 11px; }
-            #buttons { gap: 6px; }
-            #buttons button { padding: 10px 14px; font-size: 13px; }
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PebbleOS Emulator</title>
+  <!-- Provides COOP/COEP headers when served from a plain static host.
+       serve.py sets the real headers; this is the GitHub-Pages fallback. -->
+  <script src="coi-serviceworker.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #14141f;
+      color: #d8d8e0;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 { font-size: 18px; margin-bottom: 4px; }
+    .subtitle {
+      color: #8a8a99; font-size: 12px; max-width: 620px;
+      text-align: center; line-height: 1.5; margin-bottom: 14px;
+    }
+    #controls {
+      display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap; justify-content: center; margin-bottom: 10px;
+      font-size: 13px;
+    }
+    select, button {
+      background: #1e1e30; color: #d8d8e0;
+      border: 1px solid #3a3a50; border-radius: 4px;
+      font-family: inherit; font-size: 13px; padding: 5px 10px;
+    }
+    button { cursor: pointer; }
+    button:hover:not(:disabled) { border-color: #7a7a99; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #btn-boot { background: #cc4b2f; border-color: #cc4b2f; color: #fff; font-weight: bold; }
+    #status {
+      font-size: 13px; padding: 4px 10px; margin-bottom: 8px;
+      background: #1e1e30; border-radius: 4px; max-width: 640px;
+    }
+    #progress { width: 320px; height: 5px; background: #1e1e30;
+      border-radius: 3px; overflow: hidden; margin-bottom: 10px; display: none; }
+    #progress-fill { height: 100%; width: 0; background: #4cc9f0; transition: width 0.2s; }
+    #fps { font-size: 12px; color: #4cc9f0; margin-bottom: 6px; }
+    #screen-frame {
+      background: #000; border: 2px solid #333; border-radius: 10px;
+      padding: 10px; margin-bottom: 12px;
+    }
+    canvas#canvas { display: block; image-rendering: pixelated; background: #000; }
+    #buttons { display: flex; gap: 8px; margin-bottom: 6px; }
+    #buttons button { padding: 8px 16px; user-select: none; touch-action: none; }
+    #buttons button.pressed { background: #31314d; }
+    .hint { font-size: 11px; color: #6a6a7a; margin-bottom: 14px; }
+    details {
+      width: min(640px, 100%);
+    }
+    details summary {
+      font-size: 12px; color: #8a8a99; cursor: pointer; margin-bottom: 4px;
+    }
+    #console {
+      width: 100%; height: 240px; overflow-y: auto;
+      background: #0a0a10; color: #7fd97f;
+      border: 1px solid #2a2a3a; border-radius: 4px;
+      font-size: 11px; padding: 8px;
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    footer { margin-top: 14px; font-size: 11px; color: #6a6a7a; }
+    footer a { color: #4cc9f0; text-decoration: none; }
+  </style>
 </head>
 <body>
-    <h1>Pebble Emulator</h1>
-    <p style="color: #999; font-size: 13px; margin: -5px 0 12px 0; max-width: 600px; line-height: 1.5;">Runs entirely in your browser — no server, no install. QEMU is compiled to WebAssembly, emulating the original Pebble ARM hardware and booting real PebbleOS firmware. Tested on desktop, doesn't work well on mobile yet.</p>
-    <div id="controls">
-        <label for="fw-select">Firmware:</label>
-        <select id="fw-select">
-            <option value="full" selected>Full PebbleOS</option>
-            <option value="sdk">SDK PebbleOS</option>
-        </select>
-        <button id="btn-boot">Boot</button>
-        <span style="font-size: 12px; color: #888; margin-left: 8px;">May take 2-4 mins to boot</span>
-    </div>
-    <div id="status">Select firmware and click Boot</div>
-    <div id="progress-bar"><div id="progress-fill"></div></div>
+  <h1>PebbleOS Emulator</h1>
+  <p class="subtitle">
+    QEMU compiled to WebAssembly boots real PebbleOS firmware entirely in your
+    browser. Emulation uses the TCG interpreter, so booting takes a while.
+  </p>
 
-    <div id="fps-counter" style="font-size: 12px; color: #4cc9f0; margin-bottom: 5px;">FPS: --</div>
-    <div id="display-wrapper">
-        <canvas id="canvas" width="200" height="228"></canvas>
-    </div>
+  <div id="controls">
+    <label for="board">Board:</label>
+    <select id="board">
+      <option value="emery" selected>emery (Pebble Time 2)</option>
+      <option value="flint">flint (untested)</option>
+      <option value="gabbro">gabbro (untested)</option>
+    </select>
+    <button id="btn-boot">Boot</button>
+  </div>
 
-    <div id="buttons">
-        <button id="btn-back" title="Back (Escape)">Back</button>
-        <button id="btn-up" title="Up (Arrow Up)">Up</button>
-        <button id="btn-select" title="Select (Enter)">Select</button>
-        <button id="btn-down" title="Down (Arrow Down)">Down</button>
-    </div>
-    <div class="key-hint">Keys: Left=Back, Up/Down=Navigate, Right=Select</div>
+  <div id="status">Select a board and click Boot</div>
+  <div id="progress"><div id="progress-fill"></div></div>
 
-    <div id="install-controls" style="margin-top: 10px; display: none;">
-        <button id="btn-install" style="padding: 8px 16px; background: #16213e; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 14px;">Install App (.pbw)</button>
-        <input type="file" id="pbw-file" accept=".pbw" style="display: none;">
-        <span id="install-status" style="font-size: 12px; color: #888; margin-left: 8px;"></span>
-    </div>
+  <div id="fps">FPS: --</div>
+  <div id="screen-frame"><canvas id="canvas" width="200" height="228"></canvas></div>
 
-    <div id="console-wrapper">
-        <h3>Serial Console</h3>
-        <div id="console"></div>
-    </div>
-    <div style="margin-top: 15px; font-size: 11px; color: #666;">
-        <a href="https://github.com/ericmigi/pebble-qemu-wasm" style="color: #4cc9f0; text-decoration: none;">Source on GitHub</a>
-    </div>
+  <div id="buttons">
+    <button id="btn-back" title="Back (Left / Escape)">Back</button>
+    <button id="btn-up" title="Up (Arrow Up)">Up</button>
+    <button id="btn-select" title="Select (Right / Enter)">Select</button>
+    <button id="btn-down" title="Down (Arrow Down)">Down</button>
+  </div>
+  <div class="hint">Keys: &larr; Back &middot; &uarr;/&darr; Navigate &middot; &rarr;/Enter Select &middot; buttons can be held</div>
 
-    <script>
-        var ASSET_BASE = 'web/';
+  <details open>
+    <summary>Serial console (UART2)</summary>
+    <div id="console"></div>
+  </details>
 
-        var statusEl = document.getElementById('status');
-        var consoleEl = document.getElementById('console');
-        var progressBar = document.getElementById('progress-bar');
-        var progressFill = document.getElementById('progress-fill');
-        var bootBtn = document.getElementById('btn-boot');
-        var fwSelect = document.getElementById('fw-select');
+  <footer>
+    Machine models: <a href="https://github.com/coredevices/qemu">coredevices/qemu</a>
+    &middot; shell derived from <a href="https://github.com/ericmigi/pebble-qemu-wasm">ericmigi/pebble-qemu-wasm</a>
+  </footer>
 
-        // Default to SDK firmware on mobile (smaller, faster boot)
-        if (window.innerWidth <= 640) {
-            fwSelect.value = 'sdk';
+  <script>
+    'use strict';
+
+    // Board configs mirror hw/arm/pebble_generic.c in coredevices/qemu.
+    var BOARDS = {
+      emery:  { machine: 'pebble-emery',  width: 200, height: 228, audio: true },
+      flint:  { machine: 'pebble-flint',  width: 144, height: 168, audio: true },
+      gabbro: { machine: 'pebble-gabbro', width: 260, height: 260, audio: false },
+    };
+
+    var params = new URLSearchParams(window.location.search);
+    var statusEl = document.getElementById('status');
+    var consoleEl = document.getElementById('console');
+    var progressEl = document.getElementById('progress');
+    var progressFill = document.getElementById('progress-fill');
+    var fpsEl = document.getElementById('fps');
+    var bootBtn = document.getElementById('btn-boot');
+    var boardSel = document.getElementById('board');
+    var canvas = document.getElementById('canvas');
+    var canvasCtx = canvas.getContext('2d');
+
+    if (params.has('board') && BOARDS[params.get('board')]) {
+      boardSel.value = params.get('board');
+    }
+
+    function log(msg) {
+      console.log(msg);
+      consoleEl.textContent += msg + '\n';
+      if (consoleEl.textContent.length > 200000) {
+        consoleEl.textContent = consoleEl.textContent.slice(-100000);
+      }
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+      console.log('[status] ' + msg);
+    }
+
+    function showProgress(pct) {
+      progressEl.style.display = 'block';
+      progressFill.style.width = pct + '%';
+    }
+
+    async function fetchWithProgress(url, label) {
+      var resp = await fetch(url);
+      if (!resp.ok) throw new Error(label + ': HTTP ' + resp.status + ' (' + url + ')');
+      var total = parseInt(resp.headers.get('content-length')) || 0;
+      var reader = resp.body.getReader();
+      var chunks = [], received = 0;
+      for (;;) {
+        var r = await reader.read();
+        if (r.done) break;
+        chunks.push(r.value);
+        received += r.value.length;
+        if (total) {
+          setStatus(label + '... ' + (received >> 10) + ' / ' + (total >> 10) + ' KB');
+          showProgress(Math.round(received / total * 100));
         }
+      }
+      progressEl.style.display = 'none';
+      var data = new Uint8Array(received);
+      var off = 0;
+      for (var i = 0; i < chunks.length; i++) { data.set(chunks[i], off); off += chunks[i].length; }
+      return data;
+    }
 
-        // URL parameter support (e.g. ?fw=sdk&shift=0)
-        var params = new URLSearchParams(window.location.search);
-        if (params.has('fw')) {
-            fwSelect.value = params.get('fw');
+    var qemu = null;  // emscripten Module instance (set once runtime is up)
+
+    // ================================================================
+    // Display: pebble_display.c re-renders its console surface on a
+    // 33 ms virtual-clock timer even with -display none, and exports
+    // the surface via pebble_wasm_display_* (EMSCRIPTEN_KEEPALIVE).
+    // Poll the frame counter and blit only when it changes.
+    // Surface format is 32bpp x8r8g8b8 little-endian: bytes B,G,R,X.
+    // ================================================================
+    var lastFrameCount = 0;
+    var firstFrame = true;
+    var cachedImg = null;
+
+    function blitFrame() {
+      if (!qemu) return;
+      var fc = qemu._pebble_wasm_display_frame_count();
+      if (fc === lastFrameCount) return;
+      lastFrameCount = fc;
+
+      var width = qemu._pebble_wasm_display_width();
+      var height = qemu._pebble_wasm_display_height();
+      var stride = qemu._pebble_wasm_display_stride();
+      var dataPtr = Number(qemu._pebble_wasm_display_data());  // BigInt under MEMORY64
+      if (!dataPtr || !width || !height) return;
+
+      if (firstFrame) {
+        firstFrame = false;
+        setStatus('Display active: ' + width + 'x' + height);
+      }
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        cachedImg = null;
+      }
+      if (!cachedImg) {
+        cachedImg = canvasCtx.createImageData(width, height);
+      }
+
+      // BGRX -> RGBA; dest Uint32 on little-endian is 0xAABBGGRR
+      var dst32 = new Uint32Array(cachedImg.data.buffer);
+      var heap = qemu.HEAPU8;
+      for (var y = 0; y < height; y++) {
+        var src = dataPtr + y * stride;
+        var dst = y * width;
+        for (var x = 0; x < width; x++) {
+          var s = src + x * 4;
+          dst32[dst + x] =
+            heap[s + 2] | (heap[s + 1] << 8) | (heap[s] << 16) | 0xFF000000;
         }
+      }
+      canvasCtx.putImageData(cachedImg, 0, 0);
+      fpsFrames++;
+    }
+    setInterval(blitFrame, 30);
 
-        // icount shift parameter: ?shift=0..10, ?shift=auto, ?shift=off
-        var shiftParam = params.get('shift');
-        function buildIcountArgs() {
-            if (shiftParam === 'off') return [];
-            if (shiftParam !== null && /^(\d+|auto)$/.test(shiftParam)) {
-                return ['-icount', 'shift=' + shiftParam];
-            }
-            return []; // default: no icount (wall-clock time)
+    // FPS: guest frames blitted, 3-second window
+    var fpsFrames = 0, fpsT0 = performance.now();
+    setInterval(function () {
+      var now = performance.now();
+      var fps = fpsFrames / ((now - fpsT0) / 1000);
+      if (!firstFrame) {
+        fpsEl.textContent = 'FPS: ' + fps.toFixed(1);
+        console.log('[fps] ' + fps.toFixed(1));
+      }
+      fpsFrames = 0;
+      fpsT0 = now;
+    }, 3000);
+
+    // ================================================================
+    // Buttons: pebble_gpio.c exports a uint32 bitmask in shared memory
+    // (pebble_wasm_button_state_addr) and applies press/release edges
+    // on a 16 ms virtual-clock poll. Set and clear bits with Atomics;
+    // holds work, no auto-release, no synthetic key events.
+    // ================================================================
+    var BTN_BACK = 1, BTN_UP = 2, BTN_SELECT = 4, BTN_DOWN = 8;
+    var buttonMask = 0;
+    var buttonAddr = 0;
+
+    function updateButtons(bit, pressed) {
+      buttonMask = pressed ? (buttonMask | bit) : (buttonMask & ~bit);
+      if (!qemu) return;
+      if (!buttonAddr) {
+        buttonAddr = Number(qemu._pebble_wasm_button_state_addr());
+        if (!buttonAddr) return;
+        log('[input] button mask at 0x' + buttonAddr.toString(16));
+      }
+      Atomics.store(qemu.HEAPU32, buttonAddr >> 2, buttonMask);
+    }
+
+    var keyMap = {
+      ArrowLeft: BTN_BACK, Escape: BTN_BACK, Backspace: BTN_BACK,
+      ArrowUp: BTN_UP, w: BTN_UP,
+      ArrowRight: BTN_SELECT, Enter: BTN_SELECT, s: BTN_SELECT,
+      ArrowDown: BTN_DOWN, x: BTN_DOWN,
+    };
+
+    document.addEventListener('keydown', function (e) {
+      var bit = keyMap[e.key];
+      if (bit === undefined) return;
+      e.preventDefault();
+      if (!e.repeat) updateButtons(bit, true);
+    });
+    document.addEventListener('keyup', function (e) {
+      var bit = keyMap[e.key];
+      if (bit === undefined) return;
+      e.preventDefault();
+      updateButtons(bit, false);
+    });
+
+    var btnMap = {
+      'btn-back': BTN_BACK,
+      'btn-up': BTN_UP,
+      'btn-select': BTN_SELECT,
+      'btn-down': BTN_DOWN,
+    };
+
+    Object.keys(btnMap).forEach(function (id) {
+      var el = document.getElementById(id);
+      var bit = btnMap[id];
+      el.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        el.classList.add('pressed');
+        updateButtons(bit, true);
+      });
+      function release() {
+        el.classList.remove('pressed');
+        updateButtons(bit, false);
+      }
+      el.addEventListener('pointerup', release);
+      el.addEventListener('pointercancel', release);
+    });
+
+    // ================================================================
+    // Serial console: UART2 (debug console) is routed to a file in the
+    // emscripten MEMFS; poll it and show printable text.
+    // ================================================================
+    var serialPos = 0;
+
+    function pollSerial() {
+      if (!qemu) return;
+      try {
+        var stat = qemu.FS.stat('/tmp/uart2.log');
+        if (stat.size <= serialPos) return;
+        var stream = qemu.FS.open('/tmp/uart2.log', 'r');
+        var chunk = new Uint8Array(stat.size - serialPos);
+        qemu.FS.read(stream, chunk, 0, chunk.length, serialPos);
+        qemu.FS.close(stream);
+        serialPos = stat.size;
+        var text = '';
+        for (var i = 0; i < chunk.length; i++) {
+          var b = chunk[i];
+          if ((b >= 32 && b <= 126) || b === 9 || b === 10 || b === 13) {
+            text += String.fromCharCode(b);
+          }
         }
+        if (text) log(text.replace(/\r/g, ''));
+      } catch (e) {
+        // File doesn't exist until QEMU opens the chardev.
+      }
+    }
+    setInterval(pollSerial, 200);
 
-        function ts() {
-            var d = new Date();
-            return d.toTimeString().slice(0, 8) + '.' +
-                   String(d.getMilliseconds()).padStart(3, '0');
-        }
+    // ================================================================
+    // Boot
+    // ================================================================
+    function buildArgs(board) {
+      var args = [
+        '-machine', board.machine,
+        '-kernel', '/firmware/qemu_micro_flash.bin',
+        '-drive', 'if=mtd,format=raw,file=/firmware/qemu_spi_flash.bin',
+        '-display', 'none',
+        '-monitor', 'none',
+        '-parallel', 'none',
+        '-serial', 'null',                 // UART0
+        '-serial', 'null',                 // UART1: pebble control protocol
+        '-serial', 'file:/tmp/uart2.log',  // UART2: debug console
+        '-rtc', 'base=localtime',
+      ];
+      if (board.audio && params.has('audio')) {
+        args[1] = board.machine + ',audiodev=snd0';
+        args.push('-audiodev', 'sdl,id=snd0');
+      }
+      return args;
+    }
 
-        function log(msg) {
-            console.log(msg);
-            consoleEl.textContent += ts() + ' ' + msg + '\n';
-            if (consoleEl.textContent.length > 100000) {
-                consoleEl.textContent = consoleEl.textContent.slice(-50000);
-            }
-            consoleEl.scrollTop = consoleEl.scrollHeight;
-        }
+    async function boot() {
+      var name = boardSel.value;
+      var board = BOARDS[name];
+      bootBtn.disabled = true;
+      boardSel.disabled = true;
+      canvas.width = board.width;
+      canvas.height = board.height;
 
-        function setStatus(msg) {
-            statusEl.textContent = msg;
-            log('[status] ' + msg);
-        }
+      try {
+        setStatus('Fetching micro flash (' + name + ')...');
+        var micro = await fetchWithProgress('firmware/' + name + '/qemu_micro_flash.bin', 'Micro flash');
+        setStatus('Fetching SPI flash (32 MB)...');
+        var spi = await fetchWithProgress('firmware/' + name + '/qemu_spi_flash.bin', 'SPI flash');
 
-        function showProgress(pct) {
-            progressBar.style.display = 'block';
-            progressFill.style.width = pct + '%';
-        }
+        setStatus('Loading QEMU WASM module...');
+        var factory = (await import('./qemu-system-arm.js')).default;
 
-        function hideProgress() {
-            progressBar.style.display = 'none';
-        }
+        var args = buildArgs(board);
+        log('[qemu] args: ' + args.join(' '));
 
-        async function fetchWithProgress(url, label, expectedSize) {
-            var resp = await fetch(url);
-            if (!resp.ok) throw new Error(label + ': HTTP ' + resp.status);
-
-            var reader = resp.body.getReader();
-            var total = parseInt(resp.headers.get('content-length')) || expectedSize;
-            var received = 0;
-            var chunks = [];
-
-            while (true) {
-                var result = await reader.read();
-                if (result.done) break;
-                chunks.push(result.value);
-                received += result.value.length;
-                if (total) {
-                    var pct = Math.round(received / total * 100);
-                    setStatus(label + '... ' + Math.round(received / 1024) + 'KB');
-                    showProgress(pct);
-                }
-            }
-
-            hideProgress();
-            var data = new Uint8Array(received);
-            var offset = 0;
-            for (var i = 0; i < chunks.length; i++) {
-                data.set(chunks[i], offset);
-                offset += chunks[i].length;
-            }
-            return data;
-        }
-
-        // QEMU stderr noise filter — ported from boot_with_logs.sh
-        var QEMU_NOISE = [
-            'write 0x', 'read 0x',             // register access spam
-            'DMA:', 'dma:',                     // DMA transfer details
-            'unimp',                            // unimplemented stubs
-            'guest_errors',                     // harmless guest errors
-            'CPU AS read', 'CPU AS write',      // CPU address space reads
-            'DEBUG: CPU AS',                    // CPU address space debug
-            'CS changed to',                    // display chip-select toggles
-            'cmd=', 'cmd_set=',                 // display command details
-            'ps_display_execute_current_cmd',   // display command dispatch
-            'state change from',                // display state machine transitions
-            'Frame data start',                 // frame data start
-            'Asserting done interrupt',         // display interrupt
-            'Resetting state to accept',        // display state reset
-            'received scene ID',                // scene details
-            'pebble_control_write: bytes:',     // control protocol hex dumps
-            'pebble_control_write: qemu_chr',   // control write confirmations
-            'exception', 'Exception',           // ARMv7M exception traces
-            'unsupported',                      // unsupported feature warnings
-            'Not implemented',                  // unimplemented stubs
-        ];
-
-        var DISPLAY_SHOW = [
-            'Executing command:',
-            'Exiting programming mode',
-            'determine_command_set:',
-            'Got last byte in frame',
-        ];
-
-        function matchesAny(text, patterns) {
-            for (var i = 0; i < patterns.length; i++) {
-                if (text.indexOf(patterns[i]) >= 0) return true;
-            }
-            return false;
-        }
-
-        function filterAndLog(text) {
-            if (!text || text.indexOf('...') === 0) return;
-
-            // Condense frame renders
-            if (text.indexOf('Got last byte in frame') >= 0) {
-                var bi = text.indexOf('bytes:');
-                if (bi >= 0) {
-                    log('Display: frame rendered (' + text.slice(bi + 6).trim() + ' total bytes)');
-                }
-                return;
-            }
-
-            // Display events — show meaningful ones, drop noise
-            if (text.indexOf('PEBBLE_SNOWY_DISPLAY:') >= 0) {
-                if (matchesAny(text, DISPLAY_SHOW)) {
-                    log(text.replace('PEBBLE_SNOWY_DISPLAY: ', 'Display: '));
-                } else if (!matchesAny(text, QEMU_NOISE)) {
-                    log(text);
-                }
-                return;
-            }
-
-            // Control events — show packet sends, drop noise
-            if (text.indexOf('PEBBLE_CONTROL:') >= 0) {
-                if (text.indexOf('Sending packet') >= 0) {
-                    log(text.replace('PEBBLE_CONTROL: pebble_control_write: ', 'Control: '));
-                } else if (!matchesAny(text, QEMU_NOISE)) {
-                    log(text);
-                }
-                return;
-            }
-
-            // General noise filter
-            if (matchesAny(text, QEMU_NOISE)) return;
-
-            log('[err] ' + text);
-        }
-
-        var runtimeReady = false;
-
-        var Module = {
-            canvas: document.getElementById('canvas'),
-            noInitialRun: false,
-            arguments: [
-                '-machine', 'pebble-snowy-emery-bb',
-                '-display', 'none',
-                '-monitor', 'none',
-                '-parallel', 'none',
-                '-kernel', '/firmware/qemu_micro_flash.bin',
-                '-drive', 'if=none,id=spi-flash,file=/firmware/qemu_spi_flash.bin,format=raw',
-                '-serial', 'null',
-                '-serial', 'null',
-                '-serial', 'file:/tmp/pebble_serial.log',
-            ].concat(buildIcountArgs()),
-            print: function(text) {
-                log(text);
-            },
-            printErr: function(text) {
-                filterAndLog(text);
-            },
-            onRuntimeInitialized: function() {
-                setStatus('QEMU runtime initialized, booting Pebble firmware...');
-                runtimeReady = true;
-            },
-            locateFile: function(path) {
-                return ASSET_BASE + path;
-            },
-            preRun: [],
+        // The factory adopts this object as Module, so cfg.FS is valid
+        // by the time preRun callbacks fire.
+        var cfg = {
+          arguments: args,
+          print: function (t) { log(t); },
+          printErr: function (t) { log('[err] ' + t); },
+          preRun: [function () {
+            cfg.FS.mkdir('/firmware');
+            cfg.FS.writeFile('/firmware/qemu_micro_flash.bin', micro);
+            cfg.FS.writeFile('/firmware/qemu_spi_flash.bin', spi);
+          }],
+          onRuntimeInitialized: function () {
+            setStatus('QEMU running — booting PebbleOS (this takes a few minutes)...');
+          },
+          onAbort: function (why) { setStatus('QEMU aborted: ' + why); },
+          locateFile: function (p) { return './' + p; },
         };
-
-        bootBtn.addEventListener('click', function() {
-            bootBtn.disabled = true;
-            fwSelect.disabled = true;
-            bootEmulator();
-        });
-
-        // Auto-boot via URL parameter (e.g. ?fw=sdk&auto)
-        if (params.has('auto')) {
-            bootBtn.click();
-        }
-
-        async function bootEmulator() {
-            var variant = fwSelect.value;
-            var fwBase = ASSET_BASE + 'firmware/' + variant + '/';
-
-            try {
-                setStatus('Fetching micro flash (' + variant + ')...');
-                var microData = await fetchWithProgress(
-                    fwBase + 'qemu_micro_flash.bin', 'Micro flash', 968704
-                );
-                log('Downloaded micro flash: ' + microData.length + ' bytes');
-
-                setStatus('Fetching SPI flash (16MB)...');
-                var spiData = await fetchWithProgress(
-                    fwBase + 'qemu_spi_flash.bin', 'SPI flash', 16777216
-                );
-                log('Downloaded SPI flash: ' + spiData.length + ' bytes');
-
-                Module.preRun.push(function() {
-                    try { FS.mkdir('/firmware'); } catch(e) {}
-                    try { FS.mkdir('/tmp'); } catch(e) {}
-                    // Pass browser timezone offset to RTC code
-                    // getTimezoneOffset() returns minutes west of UTC (positive = behind UTC)
-                    // We need seconds east of UTC (negative = behind UTC)
-                    var offsetSec = -new Date().getTimezoneOffset() * 60;
-                    ENV.TZ_OFFSET_SEC = String(offsetSec);
-                    FS.writeFile('/firmware/qemu_micro_flash.bin', microData);
-                    FS.writeFile('/firmware/qemu_spi_flash.bin', spiData);
-                    log('Firmware written to virtual filesystem (' + variant + ')');
-                });
-
-                var icountArgs = buildIcountArgs();
-                log('[config] icount: ' + (icountArgs.length ? icountArgs[1] : 'off'));
-                setStatus('Loading QEMU WASM module (17MB)...');
-                var script = document.createElement('script');
-                script.src = ASSET_BASE + 'qemu-system-arm.js';
-                script.onerror = function() {
-                    setStatus('Failed to load qemu-system-arm.js');
-                };
-                document.body.appendChild(script);
-
-            } catch(e) {
-                setStatus('Error: ' + e.message);
-                log(e.stack || e.toString());
-                bootBtn.disabled = false;
-                fwSelect.disabled = false;
-            }
-        }
-
-        // ================================================================
-        // Framebuffer rendering
-        // ================================================================
-        var lastFrameCount = 0;
-        var totalFrames = 0;
-        var canvasCtx = document.getElementById('canvas').getContext('2d');
-
-        // FPS measurement (3-second window, fractional for sub-1 rates)
-        var fpsFrameCount = 0;
-        var fpsLastTime = performance.now();
-        var currentFps = 0;
-        var fpsEl = document.getElementById('fps-counter');
-        window.pebbleFps = function() { return currentFps; };
-
-        // Cached ImageData — reused across frames to avoid allocation per render
-        var cachedImgData = null;
-        var cachedWidth = 0;
-        var cachedHeight = 0;
-
-        function renderLoop() {
-            if (!runtimeReady) return;
-            try {
-                var frameCount = Module._pebble_display_frame_count();
-                if (frameCount === lastFrameCount) return;
-                lastFrameCount = frameCount;
-                totalFrames++;
-
-                fpsFrameCount++;
-                var now = performance.now();
-                var elapsed = now - fpsLastTime;
-                if (elapsed >= 3000) {
-                    currentFps = Math.round(fpsFrameCount / (elapsed / 1000) * 10) / 10;
-                    fpsEl.textContent = 'FPS: ' + currentFps.toFixed(1);
-                    console.log('[fps] ' + currentFps.toFixed(1));
-                    fpsFrameCount = 0;
-                    fpsLastTime = now;
-                }
-
-                var width = Module._pebble_display_width();
-                var height = Module._pebble_display_height();
-                var stride = Module._pebble_display_stride();
-                var dataPtr = Module._pebble_display_data();
-
-                if (!dataPtr || !width || !height) return;
-
-                if (totalFrames === 1) {
-                    setStatus('Display active: ' + width + 'x' + height);
-                }
-
-                // Reuse ImageData across frames (avoid GC pressure)
-                if (!cachedImgData || cachedWidth !== width || cachedHeight !== height) {
-                    cachedImgData = canvasCtx.createImageData(width, height);
-                    cachedWidth = width;
-                    cachedHeight = height;
-                }
-
-                // Bulk pixel copy using Uint32Array for ~4x fewer writes
-                // Source: BGRA (heap[s]=B, [s+1]=G, [s+2]=R)
-                // Dest: RGBA ImageData, but as Uint32 on little-endian: 0xAABBGGRR
-                var dst32 = new Uint32Array(cachedImgData.data.buffer);
-                var heap = Module.HEAPU8;
-                for (var y = 0; y < height; y++) {
-                    var rowSrc = dataPtr + y * stride;
-                    var rowDst = y * width;
-                    for (var x = 0; x < width; x++) {
-                        var s = rowSrc + x * 4;
-                        dst32[rowDst + x] = heap[s+2] | (heap[s+1] << 8) | (heap[s] << 16) | 0xFF000000;
-                    }
-                }
-                canvasCtx.putImageData(cachedImgData, 0, 0);
-            } catch(e) {}
-        }
-        setInterval(renderLoop, 16);
-
-        // ================================================================
-        // Firmware serial log parser (UART protocol from serial2)
-        // Ported from boot_with_logs.sh process_serial()
-        // ================================================================
-        var serialReadPos = 0;
-        var serialBuf = new Uint8Array(0);
-        var SYNC = [0x03, 0x50, 0x21];
-        var MARKER = [0x2a, 0x2a];
-
-        function findBytes(buf, pattern, start) {
-            for (var i = start; i <= buf.length - pattern.length; i++) {
-                var match = true;
-                for (var j = 0; j < pattern.length; j++) {
-                    if (buf[i + j] !== pattern[j]) { match = false; break; }
-                }
-                if (match) return i;
-            }
-            return -1;
-        }
-
-        function parseSerialFrames() {
-            while (true) {
-                var idx = findBytes(serialBuf, SYNC, 0);
-                if (idx < 0) {
-                    if (serialBuf.length > 512) {
-                        serialBuf = serialBuf.slice(serialBuf.length - 512);
-                    }
-                    break;
-                }
-
-                var star = findBytes(serialBuf, MARKER, idx);
-                if (star < 0) break;
-
-                // Skip \x01 padding after **
-                var pos = star + 2;
-                while (pos < serialBuf.length && serialBuf[pos] === 0x01) pos++;
-                if (pos >= serialBuf.length) break;
-
-                // Find next sync (end of this frame)
-                var nextSync = findBytes(serialBuf, SYNC, pos);
-                if (nextSync < 0) {
-                    if (serialBuf.length - pos > 4096) {
-                        serialBuf = serialBuf.slice(pos);
-                    }
-                    break;
-                }
-
-                // Strip trailing padding
-                var end = nextSync;
-                while (end > pos && serialBuf[end - 1] === 0x55) end--;
-                if (end - pos >= 4) end -= 3;
-
-                // Extract printable text from payload
-                var text = '';
-                for (var i = pos; i < end; i++) {
-                    var b = serialBuf[i];
-                    if ((b >= 32 && b <= 126) || b === 9 || b === 10 || b === 13) {
-                        text += String.fromCharCode(b);
-                    }
-                }
-                text = text.trim();
-
-                serialBuf = serialBuf.slice(nextSync);
-
-                if (text.length >= 2) {
-                    log('FIRM | ' + text);
-                }
-            }
-        }
-
-        function pollSerialLog() {
-            if (!runtimeReady) return;
-            try {
-                var stat = FS.stat('/tmp/pebble_serial.log');
-                if (stat.size <= serialReadPos) return;
-
-                var stream = FS.open('/tmp/pebble_serial.log', 'r');
-                var newBytes = stat.size - serialReadPos;
-                var chunk = new Uint8Array(newBytes);
-                FS.read(stream, chunk, 0, newBytes, serialReadPos);
-                FS.close(stream);
-                serialReadPos = stat.size;
-
-                // Append to parse buffer
-                var combined = new Uint8Array(serialBuf.length + chunk.length);
-                combined.set(serialBuf);
-                combined.set(chunk, serialBuf.length);
-                serialBuf = combined;
-
-                parseSerialFrames();
-            } catch(e) {
-                // File doesn't exist yet during early boot
-            }
-        }
-        setInterval(pollSerialLog, 200);
-
-        // ================================================================
-        // Button input
-        // ================================================================
-        var buttonState = 0;
-        var BUTTON_BACK   = 1 << 0;
-        var BUTTON_UP     = 1 << 1;
-        var BUTTON_SELECT = 1 << 2;
-        var BUTTON_DOWN   = 1 << 3;
-
-        var keyMap = {
-            'ArrowLeft':  BUTTON_BACK,
-            'ArrowUp':    BUTTON_UP,
-            'ArrowRight': BUTTON_SELECT,
-            'ArrowDown':  BUTTON_DOWN,
-            'Escape':     BUTTON_BACK,
-            'Backspace':  BUTTON_BACK,
-            'Enter':      BUTTON_SELECT,
-        };
-
-        var buttonStateAddr = 0;
-
-        function updateButtons(bit, pressed) {
-            if (pressed) {
-                buttonState |= bit;
-            } else {
-                buttonState &= ~bit;
-            }
-            if (!runtimeReady) return;
-            if (buttonStateAddr) {
-                Atomics.store(Module.HEAPU32, buttonStateAddr, buttonState);
-            } else if (Module._pebble_button_state_addr) {
-                var addr = Module._pebble_button_state_addr();
-                if (addr) {
-                    buttonStateAddr = addr >> 2;
-                    Atomics.store(Module.HEAPU32, buttonStateAddr, buttonState);
-                    log('[button] Direct memory at 0x' + addr.toString(16));
-                }
-            }
-        }
-
-        var keyHoldTimers = {};
-        // With icount, CPU is slow so keyup needs a long delay for firmware to register.
-        // Without icount, CPU runs at real-time so release immediately.
-        var useIcount = shiftParam !== 'off' && shiftParam !== null;
-        var keyUpDelay = useIcount ? 1000 : 0;
-
-        document.addEventListener('keydown', function(e) {
-            var bit = keyMap[e.key];
-            if (bit !== undefined) {
-                e.preventDefault();
-                if (e.repeat) return;
-                updateButtons(bit, true);
-                if (keyHoldTimers[e.key]) clearTimeout(keyHoldTimers[e.key]);
-                keyHoldTimers[e.key] = null;
-            }
-        });
-
-        document.addEventListener('keyup', function(e) {
-            var bit = keyMap[e.key];
-            if (bit !== undefined) {
-                e.preventDefault();
-                if (keyHoldTimers[e.key]) clearTimeout(keyHoldTimers[e.key]);
-                if (keyUpDelay > 0) {
-                    keyHoldTimers[e.key] = setTimeout(function() {
-                        updateButtons(bit, false);
-                        keyHoldTimers[e.key] = null;
-                    }, keyUpDelay);
-                } else {
-                    updateButtons(bit, false);
-                }
-            }
-        });
-
-        var btnMap = {
-            'btn-back':   BUTTON_BACK,
-            'btn-up':     BUTTON_UP,
-            'btn-select': BUTTON_SELECT,
-            'btn-down':   BUTTON_DOWN,
-        };
-
-        Object.keys(btnMap).forEach(function(id) {
-            var el = document.getElementById(id);
-            var bit = btnMap[id];
-            el.addEventListener('mousedown', function(e) {
-                e.preventDefault();
-                el.classList.add('pressed');
-                updateButtons(bit, true);
-            });
-            el.addEventListener('mouseup', function(e) {
-                el.classList.remove('pressed');
-                updateButtons(bit, false);
-            });
-            el.addEventListener('mouseleave', function(e) {
-                el.classList.remove('pressed');
-                updateButtons(bit, false);
-            });
-            el.addEventListener('touchstart', function(e) {
-                e.preventDefault();
-                el.classList.add('pressed');
-                updateButtons(bit, true);
-            });
-            el.addEventListener('touchend', function(e) {
-                el.classList.remove('pressed');
-                updateButtons(bit, false);
-            });
-        });
-        // ================================================================
-        // PBW App Install via Ring Buffer
-        // ================================================================
-        var RING_SIZE = 16384;
-        var RING_MASK = RING_SIZE - 1;
-        var jsToQemuAddr = 0;
-        var qemuToJsAddr = 0;
-        var serialInited = false;
-
-        // --- Ring buffer I/O (SPSC: JS=producer for js→qemu, JS=consumer for qemu→js) ---
-        function ringWrite(addr, data) {
-            var hIdx = addr >> 2;
-            var tIdx = (addr + 4) >> 2;
-            var base = addr + 8;
-            var h = Atomics.load(Module.HEAPU32, hIdx);
-            var t = Atomics.load(Module.HEAPU32, tIdx);
-            var free = RING_MASK - ((h - t) & RING_MASK);
-            var n = Math.min(free, data.length);
-            for (var i = 0; i < n; i++) {
-                Module.HEAPU8[base + ((h + i) & RING_MASK)] = data[i];
-            }
-            if (n > 0) Atomics.store(Module.HEAPU32, hIdx, (h + n) & RING_MASK);
-            return n;
-        }
-
-        function ringRead(addr, maxLen) {
-            var hIdx = addr >> 2;
-            var tIdx = (addr + 4) >> 2;
-            var base = addr + 8;
-            var h = Atomics.load(Module.HEAPU32, hIdx);
-            var t = Atomics.load(Module.HEAPU32, tIdx);
-            var avail = (h - t) & RING_MASK;
-            var n = Math.min(avail, maxLen);
-            if (n === 0) return null;
-            var buf = new Uint8Array(n);
-            for (var i = 0; i < n; i++) {
-                buf[i] = Module.HEAPU8[base + ((t + i) & RING_MASK)];
-            }
-            Atomics.store(Module.HEAPU32, tIdx, (t + n) & RING_MASK);
-            return buf;
-        }
-
-        async function ringWriteAll(addr, data) {
-            var off = 0;
-            while (off < data.length) {
-                var n = ringWrite(addr, data.subarray(off));
-                off += n;
-                if (off < data.length) await new Promise(function(r) { setTimeout(r, 5); });
-            }
-        }
-
-        // --- Init ring buffers ---
-        function initSerialRing() {
-            if (serialInited || !runtimeReady) return false;
-            try {
-                if (!Module._pebble_serial_js_to_qemu_addr) return false;
-                jsToQemuAddr = Module._pebble_serial_js_to_qemu_addr();
-                qemuToJsAddr = Module._pebble_serial_qemu_to_js_addr();
-                if (jsToQemuAddr && qemuToJsAddr) {
-                    serialInited = true;
-                    log('[serial] Ring buffers initialized (js->qemu=0x' +
-                        jsToQemuAddr.toString(16) + ', qemu->js=0x' +
-                        qemuToJsAddr.toString(16) + ')');
-                    document.getElementById('install-controls').style.display = '';
-                    startBackgroundPoll();
-                    return true;
-                }
-            } catch(e) {
-                log('[serial] Init error: ' + e.message);
-            }
-            return false;
-        }
-
-        var serialInitInterval = setInterval(function() {
-            if (initSerialRing()) clearInterval(serialInitInterval);
-        }, 2000);
-
-        // --- FEED/BEEF framing (all big-endian) ---
-        function buildQemuPacket(protocol, payload) {
-            var frame = new Uint8Array(8 + payload.length);
-            var dv = new DataView(frame.buffer);
-            dv.setUint16(0, 0xFEED);
-            dv.setUint16(2, protocol);
-            dv.setUint16(4, payload.length);
-            frame.set(payload, 6);
-            dv.setUint16(6 + payload.length, 0xBEEF);
-            return frame;
-        }
-
-        function buildPebbleProtocol(endpoint, data) {
-            var pp = new Uint8Array(4 + data.length);
-            var dv = new DataView(pp.buffer);
-            dv.setUint16(0, data.length);
-            dv.setUint16(2, endpoint);
-            pp.set(data, 4);
-            return pp;
-        }
-
-        async function sendPebbleMessage(endpoint, data) {
-            if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
-            var pp = buildPebbleProtocol(endpoint, data);
-            var frame = buildQemuPacket(1, pp);  // SPP = protocol 1
-            await ringWriteAll(jsToQemuAddr, frame);
-        }
-
-        // --- PhoneVersionResponse (endpoint 0x11) ---
-        // Firmware sends PhoneVersionRequest at boot to discover connected phone.
-        // We must respond or it won't know we can provide app binaries.
-        var phoneVersionSent = false;
-        function buildPhoneVersionResponse() {
-            // kind(1) + protocolVersion(4 BE) + sessionCaps(4 BE) + platformFlags(4 BE)
-            // + responseVersion(1) + major(1) + minor(1) + bugfix(1) + protocolCaps(8 BE)
-            var buf = new Uint8Array(25);
-            var dv = new DataView(buf.buffer);
-            buf[0] = 0x01;                        // kind = Response
-            dv.setUint32(1, 0xFFFFFFFF, false);    // protocol_version (unused)
-            dv.setUint32(5, 0x80000000, false);    // session_caps (GAMMA_RAY)
-            dv.setUint32(9, 50, false);            // platform_flags
-            buf[13] = 2;                           // response_version
-            buf[14] = 3;                           // major
-            buf[15] = 0;                           // minor
-            buf[16] = 0;                           // bugfix
-            dv.setUint32(17, 0xFFFFFFFF, false);   // protocol_caps high
-            dv.setUint32(21, 0xFFFFFFFF, false);   // protocol_caps low
-            return buf;
-        }
-
-        // --- Response parsing ---
-        var responseBuffer = new Uint8Array(0);
-        var pendingMessages = [];
-
-        function pollResponses() {
-            var chunk = ringRead(qemuToJsAddr, 8192);
-            if (!chunk) return;
-
-            var combined = new Uint8Array(responseBuffer.length + chunk.length);
-            combined.set(responseBuffer);
-            combined.set(chunk, responseBuffer.length);
-            responseBuffer = combined;
-
-            while (responseBuffer.length >= 8) {
-                var dv = new DataView(responseBuffer.buffer,
-                    responseBuffer.byteOffset, responseBuffer.byteLength);
-                if (dv.getUint16(0) !== 0xFEED) {
-                    responseBuffer = responseBuffer.slice(2);
-                    continue;
-                }
-                var dataLen = dv.getUint16(4);
-                var totalSize = 6 + dataLen + 2;
-                if (responseBuffer.length < totalSize) break;
-
-                if (dv.getUint16(6 + dataLen) !== 0xBEEF) {
-                    responseBuffer = responseBuffer.slice(2);
-                    continue;
-                }
-
-                var data = responseBuffer.slice(6, 6 + dataLen);
-                responseBuffer = responseBuffer.slice(totalSize);
-
-                // Parse SPP → Pebble Protocol (may contain multiple PP messages)
-                if (dv.getUint16(2) === 1 && data.length >= 4) {
-                    var ppOff = 0;
-                    while (ppOff + 4 <= data.length) {
-                        var ppDv = new DataView(data.buffer, data.byteOffset + ppOff, data.byteLength - ppOff);
-                        var ppLen = ppDv.getUint16(0);
-                        var ppEndpoint = ppDv.getUint16(2);
-                        if (ppOff + 4 + ppLen > data.length) break;
-                        var ppPayload = data.slice(ppOff + 4, ppOff + 4 + ppLen);
-                        ppOff += 4 + ppLen;
-
-                        // Auto-respond to PhoneVersionRequest
-                        if (ppEndpoint === 0x11 && ppPayload.length >= 1 &&
-                            ppPayload[0] === 0x00 && !phoneVersionSent) {
-                            phoneVersionSent = true;
-                            log('[serial] PhoneVersionRequest received, sending response');
-                            sendPebbleMessage(0x11, buildPhoneVersionResponse());
-                            continue;
-                        }
-
-                        // Auto-respond to PingPong Ping
-                        if (ppEndpoint === 0x07d1 && ppPayload.length >= 5 &&
-                            ppPayload[0] === 0x00) {
-                            var pong = new Uint8Array(5);
-                            pong[0] = 0x01;
-                            pong.set(ppPayload.slice(1, 5), 1);
-                            sendPebbleMessage(0x07d1, pong);
-                            continue;
-                        }
-
-                        pendingMessages.push({ endpoint: ppEndpoint, data: ppPayload });
-                    }
-                }
-            }
-        }
-
-        // Poll for responses in the background (catches PhoneVersionRequest early)
-        var bgPollInterval;
-        function startBackgroundPoll() {
-            if (bgPollInterval) return;
-            bgPollInterval = setInterval(function() { pollResponses(); }, 100);
-        }
-
-        async function waitForResponse(endpoint, timeoutMs) {
-            var deadline = Date.now() + timeoutMs;
-            while (Date.now() < deadline) {
-                pollResponses();
-                for (var i = 0; i < pendingMessages.length; i++) {
-                    if (pendingMessages[i].endpoint === endpoint) {
-                        return pendingMessages.splice(i, 1)[0].data;
-                    }
-                }
-                await new Promise(function(r) { setTimeout(r, 50); });
-            }
-            throw new Error('Timeout waiting for endpoint 0x' + endpoint.toString(16));
-        }
-
-        // --- STM32 CRC32 (polynomial 0x04C11DB7, init 0xFFFFFFFF, LE words, no final invert) ---
-        function stm32Crc32(data) {
-            var padLen = Math.ceil(data.length / 4) * 4;
-            var padded = new Uint8Array(padLen);
-            padded.set(data);
-            var dv = new DataView(padded.buffer);
-            var crc = 0xFFFFFFFF;
-            for (var i = 0; i < padLen; i += 4) {
-                crc = (crc ^ dv.getUint32(i, true)) >>> 0;
-                for (var j = 0; j < 32; j++) {
-                    if (crc & 0x80000000) {
-                        crc = ((crc << 1) ^ 0x04C11DB7) >>> 0;
-                    } else {
-                        crc = (crc << 1) >>> 0;
-                    }
-                }
-            }
-            return crc >>> 0;
-        }
-
-        // --- PBW parser ---
-        async function parsePBW(file) {
-            var zip = await JSZip.loadAsync(file);
-
-            // Try platform-specific manifest paths (emery first)
-            var prefixes = ['emery/', 'basalt/', ''];
-            var manifest = null;
-            var prefix = '';
-            for (var p = 0; p < prefixes.length; p++) {
-                var mf = zip.file(prefixes[p] + 'manifest.json');
-                if (mf) {
-                    manifest = JSON.parse(await mf.async('string'));
-                    prefix = prefixes[p];
-                    break;
-                }
-            }
-            if (!manifest) throw new Error('No manifest.json found in PBW');
-
-            var appInfo = manifest.application || manifest.firmware;
-            var appBinPath = prefix + (appInfo.name || 'pebble-app.bin');
-            var appBinFile = zip.file(appBinPath);
-            if (!appBinFile) throw new Error('App binary not found: ' + appBinPath);
-            var appBinary = await appBinFile.async('uint8array');
-
-            // Parse binary header offsets:
-            // 0:sentinel(8) 8:structVer(2) 10:sdkVer(2) 12:appVer(2)
-            // 14:loadSize(2) 16:offset(4) 20:crc(4) 24:name(32) 56:company(32)
-            // 88:iconResId(4) 92:symTableAddr(4) 96:flags(4) 100:numReloc(4) 104:uuid(16)
-            var hdr = new DataView(appBinary.buffer, appBinary.byteOffset, appBinary.byteLength);
-            var uuid = appBinary.slice(104, 120);
-            var nameBytes = appBinary.slice(24, 56);
-            var name = '';
-            for (var i = 0; i < 32 && nameBytes[i] !== 0; i++) {
-                name += String.fromCharCode(nameBytes[i]);
-            }
-
-            var result = {
-                uuid: uuid,
-                name: name,
-                flags: hdr.getUint32(96, true),
-                icon: hdr.getUint32(88, true),
-                appVersionMajor: appBinary[12],
-                appVersionMinor: appBinary[13],
-                sdkVersionMajor: appBinary[10],
-                sdkVersionMinor: appBinary[11],
-                binary: appBinary,
-                resources: null,
-                worker: null,
-            };
-
-            if (manifest.resources) {
-                var resFile = zip.file(prefix + manifest.resources.name);
-                if (resFile) result.resources = await resFile.async('uint8array');
-            }
-            if (manifest.worker) {
-                var wkFile = zip.file(prefix + manifest.worker.name);
-                if (wkFile) result.worker = await wkFile.async('uint8array');
-            }
-
-            return result;
-        }
-
-        // --- BlobDB insert (endpoint 0xb1db, little-endian) ---
-        function buildAppMetadata(info) {
-            // uuid(16) + flags(4 LE) + icon(4 LE) + appVer(2) + sdkVer(2) +
-            // bgColor(1) + templateId(1) + name(96) = 126 bytes
-            var meta = new Uint8Array(126);
-            var dv = new DataView(meta.buffer);
-            meta.set(info.uuid, 0);
-            dv.setUint32(16, info.flags, true);
-            dv.setUint32(20, info.icon, true);
-            meta[24] = info.appVersionMajor;
-            meta[25] = info.appVersionMinor;
-            meta[26] = info.sdkVersionMajor;
-            meta[27] = info.sdkVersionMinor;
-            meta[28] = 0;  // bg_color
-            meta[29] = 0;  // template_id
-            for (var i = 0; i < Math.min(info.name.length, 95); i++) {
-                meta[30 + i] = info.name.charCodeAt(i);
-            }
-            return meta;
-        }
-
-        function buildBlobDBInsert(token, uuid, value) {
-            // cmd(1) + token(2 LE) + database(1) + keySize(1) + key(16) + valueSize(2 LE) + value
-            var buf = new Uint8Array(23 + value.length);
-            var dv = new DataView(buf.buffer);
-            buf[0] = 0x01;  // Insert
-            dv.setUint16(1, token, true);
-            buf[3] = 0x02;  // App database
-            buf[4] = 16;    // key size
-            buf.set(uuid, 5);
-            dv.setUint16(21, value.length, true);
-            buf.set(value, 23);
-            return buf;
-        }
-
-        // --- PutBytes transfer (endpoint 0xBEEF, big-endian) ---
-        async function putBytesTransfer(data, objectType, appId, label) {
-            log('[install] PutBytes ' + label + ': ' + data.length + ' bytes');
-
-            // Init (cmd=1): objectSize(4 BE) + objectType(1) + appId(4 BE) = 10 bytes
-            var initBuf = new Uint8Array(10);
-            var initDv = new DataView(initBuf.buffer);
-            initBuf[0] = 0x01;
-            initDv.setUint32(1, data.length, false);
-            initBuf[5] = objectType;
-            initDv.setUint32(6, appId, false);
-            await sendPebbleMessage(0xBEEF, initBuf);
-
-            var initResp = await waitForResponse(0xBEEF, 15000);
-            if (initResp[0] !== 0x01) throw new Error('PutBytes init NACK for ' + label);
-            var cookie = new DataView(initResp.buffer, initResp.byteOffset,
-                initResp.byteLength).getUint32(1, false);
-            log('[install] PutBytes ' + label + ' cookie=' + cookie);
-
-            // Put chunks (cmd=2): cookie(4 BE) + payloadSize(4 BE) + payload
-            var CHUNK = 2000;
-            var sent = 0;
-            while (sent < data.length) {
-                var len = Math.min(CHUNK, data.length - sent);
-                var putBuf = new Uint8Array(9 + len);
-                var putDv = new DataView(putBuf.buffer);
-                putBuf[0] = 0x02;
-                putDv.setUint32(1, cookie, false);
-                putDv.setUint32(5, len, false);
-                putBuf.set(data.subarray(sent, sent + len), 9);
-                await sendPebbleMessage(0xBEEF, putBuf);
-
-                var putResp = await waitForResponse(0xBEEF, 15000);
-                if (putResp[0] !== 0x01) throw new Error('PutBytes put NACK at offset ' + sent);
-                sent += len;
-
-                var pct = Math.round(sent / data.length * 100);
-                setInstallStatus(label + ': ' + pct + '%');
-                showProgress(pct);
-            }
-
-            // Commit (cmd=3): cookie(4 BE) + crc(4 BE) = 9 bytes
-            var crc = stm32Crc32(data);
-            var commitBuf = new Uint8Array(9);
-            var commitDv = new DataView(commitBuf.buffer);
-            commitBuf[0] = 0x03;
-            commitDv.setUint32(1, cookie, false);
-            commitDv.setUint32(5, crc, false);
-            await sendPebbleMessage(0xBEEF, commitBuf);
-
-            var commitResp = await waitForResponse(0xBEEF, 15000);
-            if (commitResp[0] !== 0x01) throw new Error('PutBytes commit NACK for ' + label);
-            log('[install] PutBytes ' + label + ' committed (CRC=0x' + crc.toString(16) + ')');
-
-            // Install (cmd=5): cookie(4 BE) = 5 bytes
-            var installBuf = new Uint8Array(5);
-            var installDv = new DataView(installBuf.buffer);
-            installBuf[0] = 0x05;
-            installDv.setUint32(1, cookie, false);
-            await sendPebbleMessage(0xBEEF, installBuf);
-
-            var installResp = await waitForResponse(0xBEEF, 15000);
-            if (installResp[0] !== 0x01) throw new Error('PutBytes install NACK for ' + label);
-            log('[install] PutBytes ' + label + ' installed');
-        }
-
-        // --- Full install flow ---
-        function setInstallStatus(msg) {
-            document.getElementById('install-status').textContent = msg;
-        }
-
-        function uuidToHex(uuid) {
-            return Array.from(uuid).map(function(b) {
-                return b.toString(16).padStart(2, '0');
-            }).join('');
-        }
-
-        async function installApp(file) {
-            var installBtn = document.getElementById('btn-install');
-            installBtn.disabled = true;
-            setInstallStatus('Parsing PBW...');
-
-            try {
-                var pbw = await parsePBW(file);
-                log('[install] App: "' + pbw.name + '" UUID=' + uuidToHex(pbw.uuid));
-                log('[install] Binary: ' + pbw.binary.length + ' bytes' +
-                    (pbw.resources ? ', Resources: ' + pbw.resources.length + ' bytes' : '') +
-                    (pbw.worker ? ', Worker: ' + pbw.worker.length + ' bytes' : ''));
-
-                // 1. BlobDB Insert
-                setInstallStatus('BlobDB insert...');
-                var token = (Math.random() * 65534 + 1) | 0;
-                var metadata = buildAppMetadata(pbw);
-                await sendPebbleMessage(0xb1db, buildBlobDBInsert(token, pbw.uuid, metadata));
-
-                var blobResp = await waitForResponse(0xb1db, 10000);
-                if (blobResp[2] !== 0x01) {
-                    throw new Error('BlobDB insert failed (status=' + blobResp[2] + ')');
-                }
-                log('[install] BlobDB insert OK');
-
-                // 2. AppRunState Start (cmd=1 + uuid)
-                setInstallStatus('Starting app...');
-                var runCmd = new Uint8Array(17);
-                runCmd[0] = 0x01;
-                runCmd.set(pbw.uuid, 1);
-                await sendPebbleMessage(0x34, runCmd);
-                log('[install] AppRunState Start sent');
-
-                // 3. Wait for AppFetchRequest (cmd=1 + uuid + app_id LE)
-                setInstallStatus('Waiting for firmware...');
-                var fetchReq = await waitForResponse(0x1771, 30000);
-                var fetchDv = new DataView(fetchReq.buffer, fetchReq.byteOffset,
-                    fetchReq.byteLength);
-                var appId = fetchDv.getUint32(17, true);
-                log('[install] AppFetchRequest received, app_id=' + appId);
-
-                // 4. AppFetchResponse (cmd=1 + status=Start)
-                var fetchResp = new Uint8Array(2);
-                fetchResp[0] = 0x01;
-                fetchResp[1] = 0x01;  // Start
-                await sendPebbleMessage(0x1771, fetchResp);
-
-                // 5. PutBytes for app binary (type 0x85 = Binary | AppInstall)
-                await putBytesTransfer(pbw.binary, 0x85, appId, 'binary');
-
-                // 6. PutBytes for resources (type 0x84 = Resources | AppInstall)
-                if (pbw.resources) {
-                    await putBytesTransfer(pbw.resources, 0x84, appId, 'resources');
-                }
-
-                // 7. PutBytes for worker (type 0x87 = Worker | AppInstall)
-                if (pbw.worker) {
-                    await putBytesTransfer(pbw.worker, 0x87, appId, 'worker');
-                }
-
-                hideProgress();
-                setInstallStatus('Installed: ' + pbw.name);
-                log('[install] Install complete!');
-
-            } catch(e) {
-                hideProgress();
-                setInstallStatus('Error: ' + e.message);
-                log('[install] ERROR: ' + e.message);
-                if (e.stack) log(e.stack);
-            } finally {
-                installBtn.disabled = false;
-            }
-        }
-
-        // --- Install UI bindings ---
-        document.getElementById('btn-install').addEventListener('click', function() {
-            document.getElementById('pbw-file').click();
-        });
-
-        document.getElementById('pbw-file').addEventListener('change', function(e) {
-            if (e.target.files.length > 0) {
-                installApp(e.target.files[0]);
-                e.target.value = '';
-            }
-        });
-    </script>
+        qemu = await factory(cfg);
+      } catch (e) {
+        setStatus('Error: ' + e.message);
+        log(e.stack || String(e));
+        bootBtn.disabled = false;
+        boardSel.disabled = false;
+      }
+    }
+
+    bootBtn.addEventListener('click', boot);
+    if (params.has('auto')) boot();
+  </script>
 </body>
 </html>

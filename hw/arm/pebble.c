@@ -442,7 +442,8 @@ void pebble_32f439_init(MachineState *machine,
     /* Storage flash (NOR-flash on Snowy/Emery) - 16MB at 0x60000000.
      * Uses pflash_jedec_424 with per-bank command states to emulate
      * Macronix MX29VS128FB (8 banks of 2MB each). Per-bank states allow
-     * firmware to write to one bank while reading from another.
+     * firmware to write to one bank while reading from another (needed for
+     * app install while firmware is running).
      * Pass via: -drive if=none,id=spi-flash,file=firmware/qemu_spi_flash.bin,format=raw
      */
     {

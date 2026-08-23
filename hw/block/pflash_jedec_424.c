@@ -89,6 +89,8 @@ struct PFlashJEDEC424 {
     char *name;
     void *storage;
     uint16_t configuration_register;
+    bool rom_mode;          /* true = ROMD enabled (direct memory reads) */
+    uint32_t read_counter;  /* reads since last ROMD disable, for lazy re-enable */
 };
 
 static const VMStateDescription vmstate_pflash_jedec424 = {
@@ -104,6 +106,42 @@ static const VMStateDescription vmstate_pflash_jedec424 = {
         VMSTATE_END_OF_LIST()
     }
 };
+
+/*
+ * Threshold for lazy ROMD re-enable: after this many reads through the
+ * slow MMIO path with all banks idle, re-enable ROMD for direct memory
+ * reads.  Matches pflash_cfi02's PFLASH_LAZY_ROMD_THRESHOLD.
+ */
+#define PFLASH_LAZY_ROMD_THRESHOLD 42
+
+/* Enable ROMD (direct memory reads bypass MMIO handler) */
+static void pflash_enter_romd(PFlashJEDEC424 *pfl)
+{
+    if (!pfl->rom_mode) {
+        pfl->rom_mode = true;
+        memory_region_rom_device_set_romd(&pfl->mem, true);
+    }
+    pfl->read_counter = 0;
+}
+
+/* Disable ROMD (reads go through pflash_read MMIO handler) */
+static void pflash_exit_romd(PFlashJEDEC424 *pfl)
+{
+    if (pfl->rom_mode) {
+        pfl->rom_mode = false;
+        memory_region_rom_device_set_romd(&pfl->mem, false);
+    }
+    pfl->read_counter = 0;
+}
+
+/* Check if all banks are idle (no write sequences in progress) */
+static bool pflash_all_banks_idle(PFlashJEDEC424 *pfl)
+{
+    for (int i = 0; i < PFLASH_MAX_BANKS; i++) {
+        if (pfl->wcycle[i] != 0) return false;
+    }
+    return true;
+}
 
 static void pflash_reset_state(PFlashJEDEC424 *pfl)
 {
@@ -188,6 +226,16 @@ static uint32_t pflash_read(PFlashJEDEC424 *pfl, hwaddr offset,
     ret = -1;
 
     uint8_t bank = offset / pfl->bank_size;
+
+    /* Lazy ROMD re-enable: if we're reading through the MMIO handler but all
+     * banks are idle, re-enable ROMD after enough reads so future reads go
+     * directly to memory (massive perf win for the common case). */
+    if (!pfl->rom_mode && pfl->wcycle[bank] == 0 &&
+        ++pfl->read_counter > PFLASH_LAZY_ROMD_THRESHOLD) {
+        if (pflash_all_banks_idle(pfl)) {
+            pflash_enter_romd(pfl);
+        }
+    }
 
     /* Per-bank command dispatch - this is the key difference from pflash_cfi02 */
     switch (pfl->cmd[bank]) {
@@ -382,8 +430,9 @@ static void pflash_write(PFlashJEDEC424 *pfl, hwaddr offset,
             pfl->wcycle[bank], pfl->cmd[bank]);
 
     if (!pfl->wcycle[bank]) {
-        /* Set the device in I/O access mode */
-        memory_region_rom_device_set_romd(&pfl->mem, false);
+        /* Set the device in I/O access mode (disable ROMD so reads go
+         * through the MMIO handler for command/status responses) */
+        pflash_exit_romd(pfl);
     }
 
     switch (pfl->wcycle[bank]) {
@@ -588,8 +637,8 @@ static void pflash_write(PFlashJEDEC424 *pfl, hwaddr offset,
         switch (pfl->cmd[bank]) {
         case 0x25: /* Block write */
             if (cmd == 0x29 && sector_offset == 0x555) {
-                pfl->wcycle[bank] = 0;
                 pfl->status |= 0x80;
+                goto reset_bank;
             } else {
                 PFLASH_BUG("%s: unknown command for Programming\n", __func__);
                 goto reset_bank;
@@ -632,11 +681,15 @@ static void pflash_write(PFlashJEDEC424 *pfl, hwaddr offset,
             pfl->wcycle[bank], pfl->cmd[bank], value);
 
  reset_bank:
-    memory_region_rom_device_set_romd(&pfl->mem, true);
-
     pfl->wcycle[bank] = 0;
     pfl->cmd[bank] = 0;
     pfl->global_cmd = 0;
+
+    /* Re-enable ROMD if all banks are now idle.  This switches reads back
+     * to fast direct-memory access instead of the slow MMIO handler. */
+    if (pflash_all_banks_idle(pfl)) {
+        pflash_enter_romd(pfl);
+    }
 }
 
 /* MemoryRegionOps callbacks (QEMU 10.x style) */
@@ -801,12 +854,16 @@ static void pflash_jedec_realize(DeviceState *dev, Error **errp)
     pfl->cfi_table[0x4e] = 0x95;
     pfl->cfi_table[0x4f] = 0x02;
     pfl->cfi_table[0x50] = 0x01;
+
+    /* Start in ROMD mode — reads go directly to RAM, bypassing MMIO handler */
+    pfl->rom_mode = true;
 }
 
 static void pflash_jedec_reset(DeviceState *dev)
 {
     PFlashJEDEC424 *pfl = PFLASH_JEDEC_424(dev);
     pflash_reset_state(pfl);
+    pflash_enter_romd(pfl);
 }
 
 static const Property pflash_jedec_properties[] = {

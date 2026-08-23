@@ -618,19 +618,23 @@ static int pebble_control_write_wasm(void *opaque, const uint8_t *buf, int len) 
 }
 
 /* Timer callback: polls js_to_qemu ring buffer and feeds data into
- * pebble_control_receive(), same path as chardev data. */
+ * pebble_control_receive(), same path as chardev data.
+ * Uses adaptive polling: 1ms when data found (fast response during install),
+ * 50ms when idle (minimal overhead during normal operation). */
 static void pebble_wasm_serial_poll(void *opaque)
 {
     PebbleControl *s = (PebbleControl *)opaque;
 
     uint8_t tmp[512];
     uint32_t n = ring_read(&js_to_qemu_ring, tmp, sizeof(tmp));
+    int interval_ms = 50; /* idle: poll infrequently */
     if (n > 0) {
         pebble_control_receive(s, tmp, n);
+        interval_ms = 1; /* active: poll fast for next packet */
     }
 
     /* Re-arm the timer */
-    timer_mod(s_wasm_bridge_timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
+    timer_mod(s_wasm_bridge_timer, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + interval_ms);
 }
 #endif /* __EMSCRIPTEN__ */
 
