@@ -87,6 +87,24 @@
       overflow: hidden; margin-top: 6px; display: none; }
     #install-progress-fill { height: 100%; width: 0; background: #2f8f4b; transition: width 0.15s; }
     body.dragging #screen-frame { outline: 3px dashed #2f8f4b; outline-offset: 4px; }
+    #sensors-panel { width: min(640px, 100%); margin-bottom: 8px; }
+    #sensors-panel summary { font-size: 12px; color: #8a8a99; cursor: pointer; margin-bottom: 4px; }
+    .sensor-row {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      font-size: 12px; padding: 4px 0;
+    }
+    .sensor-row input[type=range] { flex: 1; min-width: 120px; }
+    .sensor-row input[type=text] {
+      flex: 1; background: #0f0f1a; color: #d8d8e0;
+      border: 1px solid #3a3a50; border-radius: 4px;
+      font-family: inherit; font-size: 12px; padding: 5px 8px;
+    }
+    #console-input-row { margin-top: 4px; }
+    #console-input {
+      width: 100%; background: #0a0a10; color: #7fd97f;
+      border: 1px solid #2a2a3a; border-radius: 4px;
+      font-family: inherit; font-size: 12px; padding: 6px 8px;
+    }
   </style>
 </head>
 <body>
@@ -100,14 +118,15 @@
   <div id="controls">
     <label for="board">Board:</label>
     <select id="board">
-      <option value="emery" selected>emery (Pebble Time 2)</option>
-      <option value="flint">flint (untested)</option>
-      <option value="gabbro">gabbro (untested)</option>
+      <option value="emery" selected>emery / obelix (Pebble Time 2)</option>
+      <option value="gabbro">gabbro / getafix_dvt (Pebble Round 2)</option>
+      <option value="flint">flint / asterix (untested)</option>
     </select>
-    <button id="btn-boot">Boot</button>
+    <button id="btn-boot" style="display:none">Boot</button>
+    <button id="btn-reset" title="Wipe the saved watch storage and reload">Factory reset</button>
   </div>
 
-  <div id="status">Select a board and click Boot</div>
+  <div id="status">Booting…</div>
   <div id="progress"><div id="progress-fill"></div></div>
 
   <div id="fps">FPS: --</div>
@@ -119,21 +138,48 @@
     <button id="btn-select" title="Select (Right / Enter)">Select</button>
     <button id="btn-down" title="Down (Arrow Down)">Down</button>
   </div>
-  <div class="hint">Keys: &larr; Back &middot; &uarr;/&darr; Navigate &middot; &rarr;/Enter Select &middot; buttons can be held</div>
+  <div class="hint">Keys: &larr; Back &middot; &uarr;/&darr; Navigate &middot; &rarr;/Enter Select &middot; buttons can be held &middot; the screen is a touchscreen (click/drag)</div>
 
   <div id="install-panel">
     <div id="install-row">
       <input id="install-input" type="text" spellcheck="false"
              placeholder="Paste an apps.repebble.com link (or .pbw URL) and press Install">
       <button id="btn-install" disabled>Install</button>
+      <button id="btn-upload" disabled title="Install a .pbw from your computer">Upload .pbw</button>
+      <button id="btn-settings" disabled title="Open the running app's settings page">&#9881;</button>
+      <input id="upload-file" type="file" accept=".pbw" style="display:none">
     </div>
-    <div id="install-status">Boot the watch first — then install apps from the store, or drag a .pbw onto the screen.</div>
+    <div id="install-status">Boot the watch first — then install apps from the store, upload a .pbw, or drag one onto the screen.</div>
     <div id="install-progress"><div id="install-progress-fill"></div></div>
   </div>
+
+  <details id="sensors-panel">
+    <summary>Sensors &amp; phone</summary>
+    <div class="sensor-row">
+      <label>Battery <span id="batt-val">80%</span></label>
+      <input id="batt-slider" type="range" min="0" max="100" value="80">
+      <label><input id="batt-charger" type="checkbox"> charging</label>
+    </div>
+    <div class="sensor-row">
+      <label>Compass <span id="compass-val">0&deg;</span></label>
+      <input id="compass-slider" type="range" min="0" max="359" value="0">
+      <button id="btn-tap">Shake / tap</button>
+      <button id="btn-24h">Toggle 12/24h</button>
+    </div>
+    <div class="sensor-row">
+      <input id="notif-title" type="text" placeholder="Notification title" value="Claude">
+      <input id="notif-body" type="text" placeholder="Body" value="Hello from the browser!">
+      <button id="btn-notify" disabled>Send notification</button>
+    </div>
+  </details>
 
   <details open>
     <summary>Serial console (UART2)</summary>
     <div id="console"></div>
+    <div id="console-input-row">
+      <input id="console-input" type="text" spellcheck="false"
+             placeholder="dbgserial command (press Enter) — try: help">
+    </div>
   </details>
 
   <footer>
@@ -304,13 +350,31 @@
       ArrowDown: BTN_DOWN, x: BTN_DOWN,
     };
 
+    // Clicked buttons must not keep focus, or the next Enter re-clicks
+    // them instead of pressing Select on the watch.
+    document.addEventListener('pointerup', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('button') : null;
+      if (b) setTimeout(function () { b.blur(); }, 0);
+    });
+
+    // Keys drive the watch only when focus is not in a form field —
+    // otherwise typing a URL would scroll the watch and Enter would
+    // press Select instead of submitting the field.
+    function typingIntoField(e) {
+      var t = e.target;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                   t.tagName === 'SELECT' || t.isContentEditable);
+    }
+
     document.addEventListener('keydown', function (e) {
+      if (typingIntoField(e)) return;
       var bit = keyMap[e.key];
       if (bit === undefined) return;
       e.preventDefault();
       if (!e.repeat) updateButtons(bit, true);
     });
     document.addEventListener('keyup', function (e) {
+      if (typingIntoField(e)) return;
       var bit = keyMap[e.key];
       if (bit === undefined) return;
       e.preventDefault();
@@ -342,34 +406,213 @@
     });
 
     // ================================================================
+    // Touch: pebble_touch.c polls a shared {seq, down, x, y} struct at
+    // 8 ms (display-pixel coordinates). Pointer events on the canvas
+    // write it with Atomics. Emery/gabbro only; harmless elsewhere.
+    // ================================================================
+    var touchAddr = 0;
+
+    function sendTouch(down, ev) {
+      if (!qemu) return;
+      if (!touchAddr) {
+        if (typeof qemu._pebble_wasm_touch_ctrl !== 'function') return;
+        touchAddr = Number(qemu._pebble_wasm_touch_ctrl());
+        if (!touchAddr) return;
+      }
+      var r = canvas.getBoundingClientRect();
+      var x = Math.max(0, Math.min(canvas.width - 1,
+        Math.round((ev.clientX - r.left) * canvas.width / r.width)));
+      var y = Math.max(0, Math.min(canvas.height - 1,
+        Math.round((ev.clientY - r.top) * canvas.height / r.height)));
+      var base = touchAddr >> 2;
+      Atomics.store(qemu.HEAPU32, base + 1, down ? 1 : 0);
+      Atomics.store(qemu.HEAPU32, base + 2, x);
+      Atomics.store(qemu.HEAPU32, base + 3, y);
+      Atomics.add(qemu.HEAPU32, base, 1);  // seq++ publishes the update
+    }
+
+    var touchActive = false;
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      touchActive = true;
+      startAudio();  // user gesture: safe moment to unlock WebAudio
+      sendTouch(true, e);
+    });
+    canvas.addEventListener('pointermove', function (e) {
+      if (touchActive) sendTouch(true, e);
+    });
+    function touchEnd(e) {
+      if (!touchActive) return;
+      touchActive = false;
+      sendTouch(false, e);
+    }
+    canvas.addEventListener('pointerup', touchEnd);
+    canvas.addEventListener('pointercancel', touchEnd);
+
+    // ================================================================
+    // Audio: pebble_audio.c mirrors every PCM sample the firmware
+    // plays into a shared int16 ring; drain it into WebAudio on a
+    // 60 ms poll, scheduling chunks at a running playhead.
+    // ================================================================
+    var audioCtx = null;
+    var audioPlayhead = 0;
+    var audioAddr = 0;
+
+    function startAudio() {
+      if (audioCtx || !qemu) return;
+      if (typeof qemu._pebble_wasm_audio_ctrl !== 'function') return;
+      audioAddr = Number(qemu._pebble_wasm_audio_ctrl());
+      if (!audioAddr) return;
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) { return; }
+      setInterval(drainAudio, 60);
+      log('[audio] output enabled');
+    }
+
+    function drainAudio() {
+      if (!audioCtx || audioCtx.state === 'suspended') { if (audioCtx) audioCtx.resume(); }
+      var base = audioAddr >> 2;
+      var u32 = qemu.HEAPU32;
+      var buf = u32[base], size = u32[base + 1];
+      var head = Atomics.load(u32, base + 2);
+      var tail = Atomics.load(u32, base + 3);
+      if (head === tail) return;
+      var n = (head - tail) >>> 0;
+      if (n > size) { tail = head - size; n = size; }
+      var rate = u32[base + 4] || 16000;
+      var vol = (u32[base + 5] || 100) / 100;
+      var pcm = audioCtx.createBuffer(1, n, Math.max(3000, rate));
+      var ch = pcm.getChannelData(0);
+      var heap16 = new Int16Array(qemu.HEAPU8.buffer);
+      for (var i = 0; i < n; i++) {
+        ch[i] = (heap16[(buf >> 1) + ((tail + i) % size)] / 32768) * vol;
+      }
+      Atomics.store(u32, base + 3, head);
+      var src = audioCtx.createBufferSource();
+      src.buffer = pcm;
+      src.connect(audioCtx.destination);
+      var now = audioCtx.currentTime;
+      if (audioPlayhead < now + 0.02) audioPlayhead = now + 0.02;
+      src.start(audioPlayhead);
+      audioPlayhead += n / Math.max(3000, rate);
+    }
+
+    // ================================================================
     // Serial console: UART2 (debug console) is routed to a file in the
     // emscripten MEMFS; poll it and show printable text.
     // ================================================================
     var serialPos = 0;
 
-    function pollSerial() {
-      if (!qemu) return;
+    // The PULSE client (module script) pulls new UART2 bytes from here.
+    window.__readUart2 = function () {
+      if (!qemu) return null;
       try {
         var stat = qemu.FS.stat('/tmp/uart2.log');
-        if (stat.size <= serialPos) return;
+        if (stat.size <= serialPos) return null;
         var stream = qemu.FS.open('/tmp/uart2.log', 'r');
         var chunk = new Uint8Array(stat.size - serialPos);
         qemu.FS.read(stream, chunk, 0, chunk.length, serialPos);
         qemu.FS.close(stream);
         serialPos = stat.size;
-        var text = '';
-        for (var i = 0; i < chunk.length; i++) {
-          var b = chunk[i];
-          if ((b >= 32 && b <= 126) || b === 9 || b === 10 || b === 13) {
-            text += String.fromCharCode(b);
-          }
-        }
-        if (text) log(text.replace(/\r/g, ''));
+        return chunk;
       } catch (e) {
-        // File doesn't exist until QEMU opens the chardev.
+        return null; // file doesn't exist until QEMU opens the chardev
+      }
+    };
+
+    // ================================================================
+    // Console input: pebble_simple_uart exports a browser->guest ring
+    // for the dbgserial prompt (UART2). Enter sends the line + CRLF.
+    // ================================================================
+    var consoleCtrlAddr = 0;
+
+    // Raw byte writer into the dbgserial RX ring; the PULSE client in
+    // the module script frames its traffic through this.
+    window.__consoleWriteBytes = function (bytes) {
+      if (!qemu) return false;
+      if (!consoleCtrlAddr) {
+        if (typeof qemu._pebble_wasm_console_ctrl !== 'function') return false;
+        consoleCtrlAddr = Number(qemu._pebble_wasm_console_ctrl());
+        if (!consoleCtrlAddr) return false;
+      }
+      var base = consoleCtrlAddr >> 2;
+      var u32 = qemu.HEAPU32;
+      var buf = u32[base], size = u32[base + 1];
+      var head = Atomics.load(u32, base + 2);
+      var tail = Atomics.load(u32, base + 3);
+      if (size - (head - tail) < bytes.length) return false;
+      for (var j = 0; j < bytes.length; j++) {
+        qemu.HEAPU8[buf + ((head + j) % size)] = bytes[j];
+      }
+      Atomics.store(u32, base + 2, (head + bytes.length) >>> 0);
+      return true;
+    };
+
+    // ================================================================
+    // Persistence: the 32 MB SPI flash (apps, settings) is saved to
+    // OPFS every 15 s when dirty and restored on the next boot, so the
+    // watch survives page reloads. Factory reset deletes it.
+    // ================================================================
+    function spiFileName(boardName) { return 'spi-' + boardName + '.bin'; }
+
+    async function loadSavedSpi(boardName) {
+      try {
+        var root = await navigator.storage.getDirectory();
+        var fh = await root.getFileHandle(spiFileName(boardName));
+        var f = await fh.getFile();
+        if (f.size !== 32 * 1024 * 1024) return null;
+        return new Uint8Array(await f.arrayBuffer());
+      } catch (e) { return null; }
+    }
+
+    var spiDirtyHash = 0;
+
+    function quickHash(data) {
+      // FNV-1a over a 1-in-64 byte stride: fast, catches real changes.
+      var h = 0x811c9dc5;
+      for (var i = 0; i < data.length; i += 64) {
+        h = ((h ^ data[i]) * 0x01000193) >>> 0;
+      }
+      return h;
+    }
+
+    async function persistSpi(boardName) {
+      if (!qemu) return;
+      var data;
+      try {
+        data = qemu.FS.readFile('/firmware/qemu_spi_flash.bin');
+      } catch (e) { return; }
+      var h = quickHash(data);
+      if (h === spiDirtyHash) return;
+      try {
+        var root = await navigator.storage.getDirectory();
+        var fh = await root.getFileHandle(spiFileName(boardName), { create: true });
+        var w = await fh.createWritable();
+        await w.write(data);
+        await w.close();
+        spiDirtyHash = h;
+        console.log('[persist] watch storage saved (' + (data.length >> 20) + ' MB)');
+      } catch (e) {
+        console.log('[persist] save failed: ' + e.message);
       }
     }
-    setInterval(pollSerial, 200);
+
+    document.getElementById('btn-reset').addEventListener('click', async function () {
+      if (!confirm('Wipe the saved watch storage (installed apps, settings) and reload?')) return;
+      try {
+        var root = await navigator.storage.getDirectory();
+        await root.removeEntry(spiFileName(boardSel.value));
+      } catch (e) { /* nothing saved */ }
+      try {
+        Object.keys(window.localStorage)
+          .filter(function (k) { return k.indexOf('pkjs-') === 0; })
+          .forEach(function (k) { window.localStorage.removeItem(k); });
+      } catch (e) { /* storage unavailable */ }
+      location.reload();
+    });
 
     // ================================================================
     // Boot
@@ -398,15 +641,22 @@
       var name = boardSel.value;
       var board = BOARDS[name];
       bootBtn.disabled = true;
-      boardSel.disabled = true;
+      // The board selector stays active: changing it reloads the page
+      // onto the chosen machine (the only way to restart the emulator).
       canvas.width = board.width;
       canvas.height = board.height;
 
       try {
         setStatus('Fetching micro flash (' + name + ')...');
         var micro = await fetchWithProgress('firmware/' + name + '/qemu_micro_flash.bin', 'Micro flash');
-        setStatus('Fetching SPI flash (32 MB)...');
-        var spi = await fetchWithProgress('firmware/' + name + '/qemu_spi_flash.bin', 'SPI flash');
+        var spi = await loadSavedSpi(name);
+        if (spi) {
+          setStatus('Restored saved watch storage (installed apps kept)');
+          spiDirtyHash = quickHash(spi);
+        } else {
+          setStatus('Fetching SPI flash (32 MB)...');
+          spi = await fetchWithProgress('firmware/' + name + '/qemu_spi_flash.bin', 'SPI flash');
+        }
 
         setStatus('Loading QEMU WASM module...');
         var factory = (await import('./qemu-system-arm.js')).default;
@@ -432,16 +682,28 @@
           locateFile: function (p) { return './' + p; },
         };
         qemu = await factory(cfg);
+        setInterval(function () { persistSpi(name); }, 15000);
       } catch (e) {
         setStatus('Error: ' + e.message);
         log(e.stack || String(e));
         bootBtn.disabled = false;
-        boardSel.disabled = false;
       }
     }
 
     bootBtn.addEventListener('click', boot);
-    if (params.has('auto')) boot();
+    // Switching boards restarts the emulator on the chosen machine.
+    boardSel.addEventListener('change', function () {
+      var p = new URLSearchParams(window.location.search);
+      p.set('board', boardSel.value);
+      window.location.search = p.toString();
+    });
+    // Auto-boot on load (add ?noauto to get the manual Boot button).
+    if (params.has('noauto')) {
+      bootBtn.style.display = '';
+      setStatus('Select a board and click Boot');
+    } else {
+      boot();
+    }
   </script>
 
   <script type="module">
@@ -450,24 +712,154 @@
     import { parsePbw } from './pbw.js';
     import { AppInstaller } from './app-install.js';
     import { fetchPbwFromStore } from './store.js';
+    import { AppMessageClient } from './appmessage.js';
+    import { PkjsRuntime, makeIframeSandbox } from './pkjs-runtime.js';
+    import { PulseConsole } from './pulse-console.js';
+    import { NotificationSender, VoiceService } from './phone-extras.js';
 
     const input = document.getElementById('install-input');
     const btn = document.getElementById('btn-install');
+    const uploadBtn = document.getElementById('btn-upload');
+    const uploadFile = document.getElementById('upload-file');
     const statusEl = document.getElementById('install-status');
     const barEl = document.getElementById('install-progress');
     const fillEl = document.getElementById('install-progress-fill');
     const boardSel = document.getElementById('board');
 
+    // A failed module import (e.g. a file missing from a deploy) kills
+    // this whole script silently; surface it in the status line.
+    window.addEventListener('error', (e) => {
+      if (e.message && /import|module|fetch/i.test(e.message)) {
+        document.getElementById('install-status').textContent =
+          'Page module failed to load (' + e.message + ') — redeploy with the full bundle.';
+      }
+    });
+
     let phone = null;
     let installer = null;
+    let pkjs = null;
     let busy = false;
 
     const say = (msg) => { statusEl.textContent = msg; console.log('[install] ' + msg); };
+    // pkjs activity goes to the on-page console too, so JS-side issues
+    // (fetch failures, geolocation denials) are visible without devtools.
+    const jsLog = (msg) => {
+      console.log('[pkjs] ' + msg);
+      if (window.log) window.log('[pkjs] ' + msg);
+    };
+
+    // CORS-proxy fallback for the JS apps' web requests and store
+    // downloads. Override with ?pkjs_proxy=<url-prefix>; the target URL
+    // is appended URI-encoded.
+    const params2 = new URLSearchParams(window.location.search);
+    const PKJS_PROXY = params2.get('pkjs_proxy') ||
+      'https://pkjs-proxy.ericmigi.workers.dev/?url=';
+
+    // Optional fixed location for JS apps: ?loc=37.44,-122.14
+    let PKJS_LOC = null;
+    if (params2.get('loc')) {
+      const m = params2.get('loc').split(',').map(Number);
+      if (m.length === 2 && m.every(Number.isFinite)) {
+        PKJS_LOC = { latitude: m[0], longitude: m[1] };
+      }
+    }
+
+    // Per-app persistent storage, scoped into the page's localStorage.
+    function scopedStorage(prefix) {
+      const p = 'pkjs-' + prefix + '-';
+      return {
+        getItem: (k) => window.localStorage.getItem(p + k),
+        setItem: (k, v) => window.localStorage.setItem(p + k, v),
+        removeItem: (k) => window.localStorage.removeItem(p + k),
+        clear: () => {
+          for (let i = window.localStorage.length - 1; i >= 0; i--) {
+            const k = window.localStorage.key(i);
+            if (k && k.startsWith(p)) window.localStorage.removeItem(k);
+          }
+        },
+        key: (i) => null,
+        get length() { return 0; },
+      };
+    }
+
+    // Config pages. Hosted (http/https) pages open in a popup with the
+    // Rebble return_to convention. Clay-style data: pages cannot be
+    // window.open()ed (browsers block top-level data: navigation), so
+    // they render in an in-page modal iframe instead: the HTML is
+    // decoded and Clay's default close target (pebblejs://close) is
+    // rewritten to our same-origin return page, which posts the
+    // response fragment back via postMessage.
+    function listenForConfigClose(onClosed, cleanup) {
+      const handler = (e) => {
+        if (e.origin !== window.location.origin) return;
+        if (e.data && e.data.type === 'pkjs-config-closed') {
+          window.removeEventListener('message', handler);
+          if (cleanup) cleanup();
+          onClosed(e.data.response);
+        }
+      };
+      window.addEventListener('message', handler);
+      return handler;
+    }
+
+    function decodeDataUrl(url) {
+      const m = /^data:[^,]*?(;base64)?,(.*)$/s.exec(url);
+      if (!m) return null;
+      return m[1] ? atob(m[2]) : decodeURIComponent(m[2]);
+    }
+
+    function openConfigUrl(url, onClosed) {
+      const ret = new URL('config-return.html', window.location.href).href;
+
+      if (url.startsWith('data:')) {
+        let html = decodeDataUrl(url);
+        if (html === null) { say('Could not decode the settings page.'); return; }
+        // Clay falls back to pebblejs://close when no return_to query
+        // parameter reaches it (data: URLs have no query string).
+        html = html.split('pebblejs://close').join(ret);
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);' +
+          'z-index:1000;display:flex;align-items:center;justify-content:center;';
+        const box = document.createElement('div');
+        box.style.cssText = 'position:relative;width:min(440px,94vw);height:min(720px,92vh);' +
+          'background:#fff;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;';
+        const bar = document.createElement('div');
+        bar.style.cssText = 'background:#1e1e30;color:#d8d8e0;font-size:12px;' +
+          'padding:6px 10px;display:flex;justify-content:space-between;align-items:center;';
+        bar.innerHTML = '<span>App settings</span>';
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Cancel';
+        closeBtn.style.cssText = 'font-size:12px;padding:2px 10px;';
+        bar.appendChild(closeBtn);
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'border:0;flex:1;width:100%;background:#fff;';
+        frame.srcdoc = html;
+        box.appendChild(bar); box.appendChild(frame);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const handler = listenForConfigClose(onClosed, () => overlay.remove());
+        closeBtn.addEventListener('click', () => {
+          window.removeEventListener('message', handler);
+          overlay.remove();
+          onClosed('');  // empty response = user cancelled
+        });
+        return;
+      }
+
+      const sep = url.includes('?') ? '&' : '?';
+      const full = url + sep + 'return_to=' + encodeURIComponent(ret + '#');
+      listenForConfigClose(onClosed);
+      window.open(full, 'pkjs-config', 'width=420,height=680');
+    }
 
     // Attach once QEMU is up and the serial bridge export exists.
+    let attaching = false;
     const attach = setInterval(() => {
       const q = window.qemu;
-      if (!q || phone) return;
+      if (!q || phone || attaching) return;
+      attaching = true;
       if (typeof q._pebble_wasm_serial_ctrl !== 'function') {
         say('This QEMU build has no serial bridge — app install unavailable.');
         clearInterval(attach);
@@ -476,12 +868,186 @@
       phone = new PebblePhone(q, (m) => console.log('[phone] ' + m));
       phone.onPhoneVersionRequest = () => {
         btn.disabled = false;
-        say('Connected to the watch — paste a store link or drag a .pbw onto the screen.');
+        uploadBtn.disabled = false;
+        document.getElementById('btn-settings').disabled = false;
+        say('Connected to the watch — paste a store link, upload a .pbw, or drag one onto the screen.');
       };
       installer = new AppInstaller(phone, onProgress, (m) => say(m));
+      const am = new AppMessageClient(phone, jsLog);
+      pkjs = new PkjsRuntime(phone, am, {
+        createSandbox: makeIframeSandbox(PKJS_PROXY, jsLog, PKJS_LOC),
+        storage: scopedStorage,
+        tokenStore: window.localStorage,
+        openUrl: openConfigUrl,
+        log: jsLog,
+      });
       setInterval(() => phone.poll(), 20);
+      wireSensors();
+      restorePkjsApps();
+      wireConsole();
+      wireNotifications();
+      wireVoice();
       clearInterval(attach);
     }, 500);
+
+    // ---- PULSE console: readable logs + interactive dbgserial prompt ----
+    let pulse = null;
+    function wireConsole() {
+      const pad = (n, w) => String(n).padStart(w, '0');
+      pulse = new PulseConsole((bytes) => window.__consoleWriteBytes(bytes), {
+        onLog: (r) => {
+          const d = new Date(r.timeMs);
+          const lvl = r.levelName ? ' <' + r.levelName + '>' : '';
+          window.log(`[${pad(d.getHours(),2)}:${pad(d.getMinutes(),2)}:${pad(d.getSeconds(),2)}.${pad(d.getMilliseconds(),3)}]${lvl} ${r.file}:${r.line}: ${r.message}`);
+        },
+        onPrompt: (text, done) => { if (text) window.log('  ' + text); },
+        onRaw: (text) => window.log(text),
+        log: (m) => console.log('[pulse] ' + m),
+      });
+      setInterval(() => {
+        const bytes = window.__readUart2();
+        if (bytes) pulse.feed(bytes);
+      }, 100);
+
+      const input = document.getElementById('console-input');
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const text = input.value.trim();
+        input.value = '';
+        if (!text) return;
+        window.log('> ' + text);
+        if (!pulse.promptReady) window.log('  (prompt still connecting — command queued)');
+        pulse.command(text);
+      });
+    }
+
+    // ---- notifications ----
+    function wireNotifications() {
+      const sender = new NotificationSender(phone, (m) => say(m));
+      const btn2 = document.getElementById('btn-notify');
+      btn2.disabled = false;
+      btn2.addEventListener('click', async () => {
+        btn2.disabled = true;
+        try {
+          await sender.send({
+            title: document.getElementById('notif-title').value || 'Claude',
+            body: document.getElementById('notif-body').value || 'Hello!',
+          });
+          say('Notification sent — check the watch (Reply → Voice tests dictation).');
+        } catch (e) {
+          say('Notification failed: ' + e.message);
+        } finally {
+          btn2.disabled = false;
+        }
+      });
+    }
+
+    // ---- voice dictation: browser speech recognition, typed fallback ----
+    function wireVoice() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recog = null;
+      let transcript = '';
+      let recogDone = null;
+
+      const voice = new VoiceService(phone, async () => {
+        if (recog) {
+          try { recog.stop(); } catch (e) { /* already stopped */ }
+          // give the recognizer a beat to finalize
+          const settled = await new Promise((res) => {
+            recogDone = res;
+            setTimeout(() => res(transcript), 3000);
+          });
+          recog = null;
+          if (settled && settled.trim()) return settled;
+        }
+        return window.prompt('Dictation: say what the watch heard', transcript || 'Hello from the browser');
+      }, (m) => { console.log('[voice] ' + m); if (window.log) window.log('[voice] ' + m); });
+
+      voice.onSessionStart = () => {
+        transcript = '';
+        if (!SR) { say('Dictation started — no speech recognition in this browser, you\'ll get a text box.'); return; }
+        try {
+          recog = new SR();
+          recog.continuous = true;
+          recog.interimResults = true;
+          recog.lang = navigator.language || 'en-US';
+          recog.onresult = (e) => {
+            let t = '';
+            for (const res of e.results) t += res[0].transcript;
+            transcript = t;
+          };
+          recog.onend = () => { if (recogDone) recogDone(transcript); };
+          recog.onerror = (e) => { console.log('[voice] recognition error: ' + e.error); };
+          recog.start();
+          say('Dictation: speak into your microphone now…');
+        } catch (e) {
+          recog = null;
+        }
+      };
+    }
+
+    // ---- sensors & phone panel: QemuProtocol injections ----
+    function wireSensors() {
+      const battSlider = document.getElementById('batt-slider');
+      const battVal = document.getElementById('batt-val');
+      const battCharger = document.getElementById('batt-charger');
+      const sendBattery = () => {
+        battVal.textContent = battSlider.value + '%';
+        phone.sendQemuFrame(5 /* Battery */, new Uint8Array([
+          Number(battSlider.value), battCharger.checked ? 1 : 0,
+        ]));
+      };
+      battSlider.addEventListener('input', sendBattery);
+      battCharger.addEventListener('change', sendBattery);
+
+      const compSlider = document.getElementById('compass-slider');
+      const compVal = document.getElementById('compass-val');
+      compSlider.addEventListener('input', () => {
+        const deg = Number(compSlider.value);
+        compVal.textContent = deg + '°';
+        const p = new Uint8Array(5);
+        new DataView(p.buffer).setUint32(0, Math.round(deg * 0x10000 / 360), false);
+        p[4] = 2; // calibrated
+        phone.sendQemuFrame(4 /* Compass */, p);
+      });
+
+      document.getElementById('btn-tap').addEventListener('click', () => {
+        phone.sendQemuFrame(2 /* Tap */, new Uint8Array([0, 1])); // x-axis, +1
+      });
+
+      let is24h = true;
+      document.getElementById('btn-24h').addEventListener('click', () => {
+        is24h = !is24h;
+        phone.sendQemuFrame(9 /* TimeFormat */, new Uint8Array([is24h ? 1 : 0]));
+        say('Time format: ' + (is24h ? '24h' : '12h'));
+      });
+    }
+
+    // ---- PKJS registry persistence: installed apps' JS survives
+    // reloads alongside the persisted SPI flash. ----
+    function persistPkjsApp(uuid, entry) {
+      try {
+        const key = 'pkjs-app-' + [...uuid].map((b) => b.toString(16).padStart(2, '0')).join('');
+        window.localStorage.setItem(key, JSON.stringify({
+          js: entry.js, appKeys: entry.appKeys, name: entry.name,
+        }));
+      } catch (e) { console.log('[pkjs] persist failed (quota?): ' + e.message); }
+    }
+
+    function restorePkjsApps() {
+      let n = 0;
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key || !key.startsWith('pkjs-app-')) continue;
+        try {
+          const hex = key.slice('pkjs-app-'.length);
+          const uuid = new Uint8Array(hex.match(/../g).map((h) => parseInt(h, 16)));
+          const e = JSON.parse(window.localStorage.getItem(key));
+          if (e && e.js) { pkjs.registerApp(uuid, e); n++; }
+        } catch (err) { /* corrupt entry */ }
+      }
+      if (n) jsLog(`restored JS for ${n} installed app(s)`);
+    }
 
     function onProgress(p) {
       if (p.phase === 'transfer') {
@@ -501,7 +1067,18 @@
       try {
         const pbw = await parsePbw(bytes, boardSel.value);
         const info = await installer.install(pbw);
-        say('Installed and launching: ' + info.name + ' ✓');
+        if (pbw.js && pkjs) {
+          const entry = {
+            js: pbw.js,
+            appKeys: (pbw.appinfo && (pbw.appinfo.appKeys || pbw.appinfo.messageKeys)) || {},
+            name: info.name,
+          };
+          pkjs.registerApp(info.uuid, entry);
+          persistPkjsApp(info.uuid, entry);
+          say('Installed and launching: ' + info.name + ' ✓ (with PebbleKit JS)');
+        } else {
+          say('Installed and launching: ' + info.name + ' ✓');
+        }
       } catch (e) {
         say('Install failed: ' + e.message);
         console.error(e);
@@ -515,7 +1092,7 @@
       if (!text) { say('Paste an apps.repebble.com link first.'); return; }
       if (busy) { say('An install is already running.'); return; }
       try {
-        const { name, pbw } = await fetchPbwFromStore(text, boardSel.value, say);
+        const { name, pbw } = await fetchPbwFromStore(text, boardSel.value, say, PKJS_PROXY);
         say('Downloaded "' + name + '" (' + (pbw.length >> 10) + ' KB)');
         await installBytes(pbw, name);
       } catch (e) {
@@ -525,8 +1102,26 @@
 
     btn.addEventListener('click', installFromInput);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') installFromInput(); });
-    // Debug/testing hook: install from raw bytes without the store.
+
+    const settingsBtn = document.getElementById('btn-settings');
+    settingsBtn.addEventListener('click', () => {
+      if (!pkjs || !pkjs.showConfiguration()) {
+        say('The running app has no settings page (or no JS is running).');
+      }
+    });
+
+    uploadBtn.addEventListener('click', () => uploadFile.click());
+    uploadFile.addEventListener('change', async () => {
+      const f = uploadFile.files && uploadFile.files[0];
+      uploadFile.value = '';
+      if (!f) return;
+      say('Installing ' + f.name + '…');
+      await installBytes(new Uint8Array(await f.arrayBuffer()), f.name);
+    });
+
+    // Debug/testing hooks.
     window.__installPbw = installBytes;
+    window.__openConfig = openConfigUrl;
 
     // Drag-drop a .pbw anywhere on the page.
     document.addEventListener('dragover', (e) => {
