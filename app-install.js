@@ -15,6 +15,12 @@ const PB_OBJ_APP_RESOURCES = 0x04;
 const PB_OBJ_WATCH_APP = 0x05;
 const PB_OBJ_WATCH_WORKER = 0x07;
 const PB_MAX_CHUNK = 2044;
+// The watch acks a chunk when it arrives but writes it to flash from a
+// system task, so acks alone do not throttle us: on a large resource pack
+// the queue fills, the firmware panics ("System task queue full") and
+// resets mid-install. Pause between chunks to let that queue drain --
+// 15 ms costs about a second over a 150 KB pack.
+const PB_CHUNK_PACING_MS = 15;
 
 const PROCESS_INFO_HAS_WORKER = 0x10;
 
@@ -155,7 +161,18 @@ export class AppInstaller {
       msg.set(value, 23);
       const p = this._wait('_blobDbWaiter', 5000, 'blobdb response');
       this.phone.sendPP(EP_BLOB_DB, msg);
-      const resp = await p;
+      let resp;
+      try {
+        resp = await p;
+      } catch (e) {
+        // A silent watch usually means the emulator is starved rather than
+        // wedged — an in-browser app build saturates every core — so give
+        // it another go before failing the install.
+        if (attempt >= 5) throw e;
+        this.log('no blobdb response yet, the watch may be catching up…');
+        await delay(2000);
+        continue;
+      }
       if (resp.status === BLOB_DB_SUCCESS) return;
       if (resp.status === BLOB_DB_TRY_LATER) {
         this.log('blobdb not ready yet, retrying…');
@@ -195,6 +212,7 @@ export class AppInstaller {
       resp = await p;
       if (!resp.ack) throw new Error(`putbytes PUT nacked at ${off} (${label})`);
       this.onProgress({ phase: 'transfer', detail: label, sent: Math.min(off + chunk.length, data.length), total: data.length });
+      if (off + PB_MAX_CHUNK < data.length) await delay(PB_CHUNK_PACING_MS);
     }
 
     // COMMIT with legacy CRC
