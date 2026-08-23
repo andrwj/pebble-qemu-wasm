@@ -95,6 +95,42 @@ function findProject(files, hint) {
 }
 
 
+// Some projects change the compiler flags in their wscript. Pebble.js is
+// the common case: its menu types are built from anonymous members of a
+// named struct type, which is a Microsoft extension, so it compiles with
+// -std=c11 -fms-extensions and nothing else will do. waf runs that file as
+// Python; lifting the flag literals out of it covers what these projects
+// actually do without running anything.
+//
+// Only -std, -f and -D are taken. Warning options are left alone because a
+// project's -Werror would fail this build over warnings its own toolchain
+// never emitted.
+function wscriptCflags(wscript) {
+  if (!wscript) return [];
+  const flags = [];
+  // Flags follow the line that names cflags, one per line. The window has
+  // to travel with the list — these lists run long, and the warning options
+  // we skip would otherwise end it before the defines at the bottom.
+  //
+  // A -D value can hold spaces and quotes of its own
+  // (-DNAME="Home Assistant WS"), so a flag runs to its matching quote. waf
+  // hands these to the compiler without a shell and so do we, which keeps
+  // the inner quotes as part of the macro body.
+  const ANY_FLAG = /(['"])(-(?:(?!\1).)+)\1/g;
+  let near = 0;
+  for (const line of wscript.split('\n')) {
+    if (/cflags/i.test(line)) near = 3;
+    else if (near) near--;
+    if (!near) continue;
+    for (const m of line.matchAll(ANY_FLAG)) {
+      near = 3;
+      if (!/^-(std=|f|D)/.test(m[2])) continue;
+      if (!flags.includes(m[2])) flags.push(m[2]);
+    }
+  }
+  return flags;
+}
+
 // The PebbleKit JS entry point is declared in the project's wscript
 // (js_entry_file=), so read it from there and fall back to the two
 // conventional layouts.
@@ -120,6 +156,8 @@ function findJsEntry(rel, wscript) {
 //     linker as WebAssembly.Modules plus the SDK files a manifest may
 //     include (unzipped modpack.zip). Called only for a Moddable project,
 //     so an ordinary build never fetches them,
+//   transpileTs: async (source, path) => js, for Moddable modules written
+//     in TypeScript (mcrun shells out to tsc for these),
 //   mods: {platform: Uint8Array}, prebuilt XS archives, if the caller has
 //     them already and wants to skip the xsc/xsl step,
 //   log: (msg) => void,
@@ -202,7 +240,8 @@ export async function buildApp(opts) {
       const manifestPath = findModManifest(
         Object.keys(repoFiles).filter((p) => p.startsWith(prefix)).map((p) => '/proj/' + p));
       if (!manifestPath) throw new Error('Moddable project has no manifest.json');
-      modBytes = await buildMod({ manifestPath, files, xsc, xsl, log });
+      modBytes = await buildMod({ manifestPath, files, xsc, xsl,
+                                  transpile: opts.transpileTs, log });
     }
     if (!modBytes) {
       throw new Error('this is a Moddable project; building it needs xsc and xsl');
@@ -276,8 +315,16 @@ export async function buildApp(opts) {
     });
 
     // ---- compile ----
-      const sources = Object.keys(projFiles).filter((p) => p.endsWith('.c') &&
+    const cFiles = Object.keys(projFiles).filter((p) => p.endsWith('.c') &&
       !p.startsWith('src/js/') && !p.startsWith('src/pkjs/'));
+    // An SDK 4 project keeps its C under src/c; older ones put it straight
+    // in src. A repo that has lived through both layouts still carries the
+    // old copy, and building the two together gives duplicate symbols, so
+    // src/c wins wherever it exists — which is what such a project's own
+    // wscript globs.
+    const sources = cFiles.some((p) => p.startsWith('src/c/'))
+      ? cFiles.filter((p) => !p.startsWith('src/') || p.startsWith('src/c/'))
+      : cFiles;
     // Nothing but the generated files means the app is not written in C.
     if (!sources.some((p) => p.startsWith('src/'))) {
       const langs = new Set();
@@ -292,6 +339,13 @@ export async function buildApp(opts) {
     }
     const defines = (PLATFORM_DEFINES[platform] || [])
       .concat(['PBL_SDK_3', 'RELEASE']).map((d) => '-D' + d);
+    // A project's own flags win over ours, and a -std of its own replaces
+    // the one the SDK would otherwise pick.
+    const extraCflags = wscriptCflags(
+      rel('wscript') ? td.decode(rel('wscript')) : null);
+    const baseCflags = extraCflags.some((f) => f.startsWith('-std='))
+      ? CFLAGS.filter((f) => !f.startsWith('-std=')) : CFLAGS;
+    if (extraCflags.length) log(`wscript flags: ${extraCflags.join(' ')}`);
     // The SDK puts a package's include root and its per-platform directory
     // on the search path (setup_pebble_c).
     const depIncludes = [];
@@ -306,7 +360,8 @@ export async function buildApp(opts) {
       const objName = src.replace(/[\/]/g, '_') + '.o';
       log(`clang.wasm: ${src}`);
       const { code, stderr } = await runTool(clang, 'clang',
-        [...CFLAGS, ...defines, ...depIncludes, '-c', '/proj/' + src, '-o', '/obj/' + objName],
+        [...baseCflags, ...extraCflags, ...defines, ...depIncludes,
+         '-c', '/proj/' + src, '-o', '/obj/' + objName],
         { '/sdk': sdkTree, '/newlib': newlibTree, '/clang-res': clangResTree,
           '/proj': projTree, '/obj': objTree, '/deps': depIncludeTree }, log);
       if (code !== 0) throw new Error(`compile failed: ${src}\n${stderr.slice(0, 2000)}`);
@@ -334,9 +389,13 @@ export async function buildApp(opts) {
     // ---- background worker ----
     // The SDK builds worker_src/c/**/*.c into a second binary that runs
     // outside the app's lifetime (app wscript, bin_type='worker').
-    const workerSources = Object.keys(repoFiles)
+    const workerFound = Object.keys(repoFiles)
       .filter((p) => p.startsWith(prefix + 'worker_src/') && p.endsWith('.c'))
       .map((p) => p.slice(prefix.length));
+    // worker_src carries the same two layouts as src, and so the same trap
+    // of a repo holding both copies.
+    const workerSources = workerFound.some((p) => p.startsWith('worker_src/c/'))
+      ? workerFound.filter((p) => p.startsWith('worker_src/c/')) : workerFound;
     let workerBin = null;
     if (workerSources.length) {
       log(`building background worker (${workerSources.length} sources)…`);
@@ -353,7 +412,8 @@ export async function buildApp(opts) {
       for (const src of workerSources) {
         const objName = src.replace(/[\/]/g, '_') + '.o';
         const { code, stderr } = await runTool(clang, 'clang',
-          [...CFLAGS, ...defines, ...depIncludes, '-c', '/proj/' + src, '-o', '/obj/' + objName],
+          [...baseCflags, ...extraCflags, ...defines, ...depIncludes,
+         '-c', '/proj/' + src, '-o', '/obj/' + objName],
           { '/sdk': sdkTree, '/newlib': newlibTree, '/clang-res': clangResTree,
             '/proj': workerTree, '/obj': wObjTree, '/deps': depIncludeTree }, log);
         if (code !== 0) throw new Error(`worker compile failed: ${src}\n${stderr.slice(0, 2000)}`);
