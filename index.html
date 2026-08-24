@@ -947,6 +947,7 @@
       wireNotifications();
       wireVoice();
       wirePins();
+      wireHostApi();
       clearInterval(attach);
     }, 500);
 
@@ -1002,11 +1003,63 @@
       });
     }
 
+    // ---- host API for an embedding app (CloudPebble) ----
+    // A same-origin parent frame drives the emulator through window.__emu:
+    // it reuses the existing phone/installer/pin machinery so the host does
+    // not re-implement any wire protocol. Buttons go through updateButtons
+    // (Atomics on generic boards, frame 8 on classic); every other emu_*
+    // command is a QEMU control frame the host packs exactly as libpebble
+    // already does, and we just hand it to phone.sendQemuFrame.
+    let pinSender = null;
+    let notifSender = null;
+    const logSubs = new Set();
+    // Fan every console line out to host subscribers too.
+    (function () {
+      const prev = window.log;
+      window.log = (msg) => { if (prev) prev(msg); for (const cb of logSubs) { try { cb(String(msg)); } catch (e) {} } };
+    })();
+
+    const BTN_BY_NAME = { back: BTN_BACK, up: BTN_UP, select: BTN_SELECT, down: BTN_DOWN };
+
+    function wireHostApi() {
+      const canvas = document.getElementById('canvas');
+      window.__emu = {
+        ready: Promise.resolve(),           // wireHostApi runs post-connect
+        platform: () => boardSel.value,
+        hasAudio: () => !!(currentBoard && currentBoard.audio),
+        // Low-level QEMU control frame — the host packs it like libpebble's
+        // send_qemu_command(protocol, message) and we forward verbatim.
+        sendQemuFrame: (channel, bytes) => phone && phone.sendQemuFrame(channel, bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes)),
+        pressButton: (name, down) => { const b = BTN_BY_NAME[String(name).toLowerCase()]; if (b) updateButtons(b, !!down); },
+        installPbw: async (bytesOrUrl, name) => {
+          if (bytesOrUrl instanceof ArrayBuffer) return installBytes(new Uint8Array(bytesOrUrl), name || 'app.pbw');
+          if (bytesOrUrl instanceof Uint8Array) return installBytes(bytesOrUrl, name || 'app.pbw');
+          // A store link or direct .pbw URL: resolve to bytes, then install.
+          const r = await fetchPbwFromStore(String(bytesOrUrl), boardSel.value, say, PKJS_PROXY);
+          return installBytes(r.pbw, r.name);
+        },
+        buildRepo: (url) => window.__buildRepo(url),
+        sendPin: (pin) => window.__sendPin(pin),
+        deletePin: (id) => window.__deletePin(id),
+        notify: (opts) => { if (!notifSender) notifSender = new NotificationSender(phone, (m) => say(m)); return notifSender.send(opts); },
+        appConfig: (url) => openConfigUrl(url),
+        screenshot: () => (canvas ? canvas.toDataURL('image/png') : null),
+        setMuted: (m) => { if (window.__setMuted) window.__setMuted(m); },
+        // A soft reboot the host can await: reload the frame; the parent
+        // re-grabs window.__emu and waits on its fresh ready promise.
+        reboot: () => { location.reload(); },
+        onLog: (cb) => { logSubs.add(cb); return () => logSubs.delete(cb); },
+      };
+      // Let a parent know the emulator is live even if it attached late.
+      try { if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'pebble-emu-ready', platform: window.__emu.platform() }, '*'); } catch (e) {}
+    }
+
     // ---- timeline pins ----
     // CloudPebble (and any host) can push a pin by calling window.__sendPin
     // with the public timeline pin JSON, and remove it with window.__deletePin.
     function wirePins() {
-      const pins = new PinSender(phone, (m) => { if (window.log) window.log('[pin] ' + m); });
+      pinSender = new PinSender(phone, (m) => { if (window.log) window.log('[pin] ' + m); });
+      const pins = pinSender;
       // Accept either a JSON string (as libpebble sends) or an object.
       window.__sendPin = (pin) => pins.sendPin(typeof pin === 'string' ? JSON.parse(pin) : pin);
       window.__deletePin = (id) => pins.deletePin(id);
