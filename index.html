@@ -261,16 +261,15 @@
     async function fetchWithProgress(url, label) {
       // Vendored builds (e.g. CloudPebble) ship the big flash images gzipped
       // to keep the repo small; fall back to <url>.gz and gunzip in-browser.
-      var gz = false;
       var resp = await fetch(url);
+      var fellBack = false;
       if (!resp.ok) {
-        var gzResp = await fetch(url + '.gz');
-        if (!gzResp.ok) throw new Error(label + ': HTTP ' + resp.status + ' (' + url + ')');
-        resp = gzResp; gz = true;
+        resp = await fetch(url + '.gz');
+        if (!resp.ok) throw new Error(label + ': HTTP ' + resp.status + ' (' + url + ')');
+        fellBack = true;
       }
-      var total = gz ? 0 : (parseInt(resp.headers.get('content-length')) || 0);
-      var stream = gz ? resp.body.pipeThrough(new DecompressionStream('gzip')) : resp.body;
-      var reader = stream.getReader();
+      var total = fellBack ? 0 : (parseInt(resp.headers.get('content-length')) || 0);
+      var reader = resp.body.getReader();
       var chunks = [], received = 0;
       for (;;) {
         var r = await reader.read();
@@ -288,6 +287,13 @@
       var data = new Uint8Array(received);
       var off = 0;
       for (var i = 0; i < chunks.length; i++) { data.set(chunks[i], off); off += chunks[i].length; }
+      // Gunzip only if the bytes still carry the gzip magic (1f 8b); a static
+      // host that tagged .gz with Content-Encoding was decompressed already.
+      if (fellBack && data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
+        data = new Uint8Array(await new Response(
+          new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))
+        ).arrayBuffer());
+      }
       return data;
     }
 
