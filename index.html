@@ -259,10 +259,18 @@
     }
 
     async function fetchWithProgress(url, label) {
+      // Vendored builds (e.g. CloudPebble) ship the big flash images gzipped
+      // to keep the repo small; fall back to <url>.gz and gunzip in-browser.
+      var gz = false;
       var resp = await fetch(url);
-      if (!resp.ok) throw new Error(label + ': HTTP ' + resp.status + ' (' + url + ')');
-      var total = parseInt(resp.headers.get('content-length')) || 0;
-      var reader = resp.body.getReader();
+      if (!resp.ok) {
+        var gzResp = await fetch(url + '.gz');
+        if (!gzResp.ok) throw new Error(label + ': HTTP ' + resp.status + ' (' + url + ')');
+        resp = gzResp; gz = true;
+      }
+      var total = gz ? 0 : (parseInt(resp.headers.get('content-length')) || 0);
+      var stream = gz ? resp.body.pipeThrough(new DecompressionStream('gzip')) : resp.body;
+      var reader = stream.getReader();
       var chunks = [], received = 0;
       for (;;) {
         var r = await reader.read();
@@ -272,6 +280,8 @@
         if (total) {
           setStatus(label + '... ' + (received >> 10) + ' / ' + (total >> 10) + ' KB');
           showProgress(Math.round(received / total * 100));
+        } else {
+          setStatus(label + '... ' + (received >> 10) + ' KB');
         }
       }
       progressEl.style.display = 'none';
