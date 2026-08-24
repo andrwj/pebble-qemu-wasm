@@ -180,6 +180,11 @@
       <input id="notif-body" type="text" placeholder="Body" value="Hello from the browser!">
       <button id="btn-notify" disabled>Send notification</button>
     </div>
+    <div class="sensor-row">
+      <input id="pin-title" type="text" placeholder="Pin title" value="Test pin">
+      <input id="pin-body" type="text" placeholder="Pin body" value="Sent from the browser">
+      <button id="btn-pin" disabled>Send timeline pin</button>
+    </div>
   </details>
 
   <details open>
@@ -767,6 +772,7 @@
     import { PkjsRuntime, makeIframeSandbox } from './pkjs-runtime.js';
     import { PulseConsole } from './pulse-console.js';
     import { NotificationSender, VoiceService } from './phone-extras.js';
+    import { PinSender } from './timeline-pins.js';
 
     const input = document.getElementById('install-input');
     const btn = document.getElementById('btn-install');
@@ -940,6 +946,7 @@
       wireConsole();
       wireNotifications();
       wireVoice();
+      wirePins();
       clearInterval(attach);
     }, 500);
 
@@ -993,6 +1000,46 @@
           btn2.disabled = false;
         }
       });
+    }
+
+    // ---- timeline pins ----
+    // CloudPebble (and any host) can push a pin by calling window.__sendPin
+    // with the public timeline pin JSON, and remove it with window.__deletePin.
+    function wirePins() {
+      const pins = new PinSender(phone, (m) => { if (window.log) window.log('[pin] ' + m); });
+      // Accept either a JSON string (as libpebble sends) or an object.
+      window.__sendPin = (pin) => pins.sendPin(typeof pin === 'string' ? JSON.parse(pin) : pin);
+      window.__deletePin = (id) => pins.deletePin(id);
+
+      const btn = document.getElementById('btn-pin');
+      if (btn) {
+        btn.disabled = false;
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          try {
+            const now = Math.floor(Date.now() / 1000);
+            await pins.sendPin({
+              id: 'browser-test-pin',
+              time: new Date(now * 1000).toISOString(),
+              duration: 30,
+              layout: {
+                type: 'genericPin',
+                title: document.getElementById('pin-title')?.value || 'Test pin',
+                body: document.getElementById('pin-body')?.value || 'Sent from the browser',
+                tinyIcon: 'system://images/NOTIFICATION_FLAG',
+                primaryColor: '#ffffff',
+                backgroundColor: '#0055aa',
+              },
+              actions: [{ title: 'Remove', type: 'remove' }],
+            });
+            say('Pin sent — open the timeline (press Up from the watchface) to see it.');
+          } catch (e) {
+            say('Pin failed: ' + e.message);
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      }
     }
 
     // ---- voice dictation: browser speech recognition, typed fallback ----
