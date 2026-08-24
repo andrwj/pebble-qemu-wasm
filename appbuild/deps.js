@@ -10,6 +10,17 @@ import { unzip } from '../pbw.js';
 const td = new TextDecoder();
 const REGISTRY = 'https://registry.npmjs.org/';
 
+// Most SDK libraries predate the newest watches, so their dist.zip has no
+// binaries for them. Cortex-M thumb code is compatible across the line, so
+// stand in the closest sibling: same shape and color first.
+const BINARY_FALLBACK = {
+  emery: ['basalt', 'diorite', 'aplite'],
+  flint: ['diorite', 'aplite', 'basalt'],
+  gabbro: ['chalk', 'basalt'],
+  diorite: ['aplite', 'basalt'],
+  basalt: ['diorite'],
+};
+
 // --- tar (npm tarballs are gzipped ustar) ---------------------------------
 
 function untar(bytes) {
@@ -104,10 +115,18 @@ export async function fetchDependencies(rootPkg, { platforms, get, vendored = {}
         throw new Error(`dependency "${name}" could not be downloaded ` +
           `(${resolved.tarball}): ${e.message}`);
       }
-      // npm tarballs put everything under package/
+      // npm tarballs put everything under package/; CloudPebble's
+      // package.tar.gz exports sit at ./ instead.
       files = {};
       for (const [p, d] of Object.entries(tar)) {
-        if (p.startsWith('package/')) files[p.slice('package/'.length)] = d;
+        const q = p.replace(/^\.\//, '');
+        if (q.startsWith('package/')) files[q.slice('package/'.length)] = d;
+      }
+      if (!Object.keys(files).length) {
+        for (const [p, d] of Object.entries(tar)) {
+          const q = p.replace(/^\.\//, '');
+          if (q) files[q] = d;
+        }
       }
     }
     let meta = {};
@@ -117,6 +136,7 @@ export async function fetchDependencies(rootPkg, { platforms, get, vendored = {}
       // A built SDK library: headers, per-platform archive, JS, resources.
       const dist = await unzip(files['dist.zip']);
       const missing = [];
+      const bins = {};              // platform -> [{name, data}] in this dist
       for (const [p, d] of Object.entries(dist)) {
         if (p.startsWith('include/')) includes[p.slice('include/'.length)] = d;
         else if (p.startsWith('binaries/') && p.endsWith('.a')) {
@@ -124,7 +144,8 @@ export async function fetchDependencies(rootPkg, { platforms, get, vendored = {}
           // (binaries/emery/@rebble/libclay.a), so match on the directory
           // rather than reconstructing the filename.
           const plat = p.split('/')[1];
-          if (libs[plat]) libs[plat].push({ name: p.slice(p.lastIndexOf('/') + 1), data: d });
+          (bins[plat] = bins[plat] || [])
+            .push({ name: p.slice(p.lastIndexOf('/') + 1), data: d });
         } else if (p.startsWith('js/')) {
           packages[name] = packages[name] || { files: {}, isLibrary: true };
           packages[name].files[p.slice('js/'.length)] = d;
@@ -132,7 +153,25 @@ export async function fetchDependencies(rootPkg, { platforms, get, vendored = {}
           resources.push({ name, path: p.slice('resources/'.length), data: d });
         }
       }
-      for (const plat of platforms) if (!libs[plat].length) missing.push(plat);
+      for (const plat of platforms) {
+        let take = plat;
+        if (!bins[take]) {
+          take = (BINARY_FALLBACK[plat] || []).find((f) => bins[f]);
+          if (take) {
+            log(`${name} has no ${plat} build; using its ${take} binaries`);
+            // The per-platform generated headers travel with the binaries
+            // (include/<pkg>/<plat>/…), so alias those over as well.
+            for (const [p, d] of Object.entries(includes)) {
+              const from = `${name}/${take}/`;
+              if (p.startsWith(from) && !includes[`${name}/${plat}/` + p.slice(from.length)]) {
+                includes[`${name}/${plat}/` + p.slice(from.length)] = d;
+              }
+            }
+          }
+        }
+        if (take && bins[take]) libs[plat].push(...bins[take]);
+        else if (!libs[plat].length) missing.push(plat);
+      }
       if (missing.length) {
         // Several long-abandoned packages ship binaries only for the
         // platforms that existed when they were published. Most of those
