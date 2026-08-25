@@ -724,7 +724,8 @@
 
         setStatus('Loading QEMU WASM module...');
         var qemuDir = './' + (board.dir || '');
-        var factory = (await import(qemuDir + 'qemu-system-arm.js')).default;
+        var WASM_VER = '20260825a';
+        var factory = (await import(qemuDir + 'qemu-system-arm.js?v=' + WASM_VER)).default;
 
         var args = buildArgs(board);
         log('[qemu] args: ' + args.join(' '));
@@ -744,7 +745,7 @@
             setStatus('QEMU running — booting PebbleOS (this takes a few minutes)...');
           },
           onAbort: function (why) { setStatus('QEMU aborted: ' + why); },
-          locateFile: function (p) { return qemuDir + p; },
+          locateFile: function (p) { return qemuDir + p + '?v=' + WASM_VER; },
         };
         qemu = await factory(cfg);
         setInterval(function () { persistSpi(name); }, 15000);
