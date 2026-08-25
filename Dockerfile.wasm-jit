@@ -57,8 +57,8 @@ EOF
 FROM build-base AS zlib-dev
 ARG ZLIB_VERSION
 RUN mkdir -p /zlib
-RUN curl -Ls https://zlib.net/zlib-$ZLIB_VERSION.tar.xz | \
-    tar xJC /zlib --strip-components=1
+RUN curl -Ls https://github.com/madler/zlib/archive/refs/tags/v$ZLIB_VERSION.tar.gz | \
+    tar xzC /zlib --strip-components=1
 WORKDIR /zlib
 RUN emconfigure ./configure --prefix=$TARGET --static
 RUN emmake make install -j$(nproc)
@@ -80,9 +80,9 @@ RUN emmake make install SUBDIRS='include' -j$(nproc)
 FROM build-base AS pixman-dev
 ARG PIXMAN_VERSION
 RUN mkdir /pixman/
-RUN git clone https://gitlab.freedesktop.org/pixman/pixman /pixman/
+RUN curl -Ls https://cairographics.org/releases/pixman-$PIXMAN_VERSION.tar.gz | \
+    tar xzC /pixman --strip-components=1
 WORKDIR /pixman
-RUN git checkout pixman-$PIXMAN_VERSION
 RUN <<EOF
 cat <<EOT >> /cross.meson
 [built-in options]
