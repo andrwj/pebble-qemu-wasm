@@ -136,13 +136,13 @@
   <div id="fps">FPS: --</div>
   <div id="screen-frame"><canvas id="canvas" width="200" height="228"></canvas></div>
 
-  <div id="buttons">
+  <div id="buttons" role="group" aria-label="Watch buttons" tabindex="0">
     <button id="btn-back" title="Back (Left / Escape)">Back</button>
     <button id="btn-up" title="Up (Arrow Up)">Up</button>
     <button id="btn-select" title="Select (Right / Enter)">Select</button>
     <button id="btn-down" title="Down (Arrow Down)">Down</button>
   </div>
-  <div class="hint">Keys: &larr; Back &middot; &uarr;/&darr; Navigate &middot; &rarr;/Enter Select &middot; buttons can be held &middot; the screen is a touchscreen (click/drag)</div>
+  <div class="hint">✔︎ Click the watch to use keys: &larr; Back &middot; &uarr;/&darr; Navigate &middot; &rarr;/Enter Select &middot; buttons can be held<br>✔︎ Ctrl+click: double click &middot; Cmd+click: long click (1 second)<br>✔︎ the screen is a touchscreen (click/drag)</div>
   <div id="audio-status" class="hint" role="status" hidden></div>
 
   <div id="install-panel">
@@ -369,8 +369,7 @@
     // ================================================================
     // Buttons: pebble_gpio.c exports a uint32 bitmask in shared memory
     // (pebble_wasm_button_state_addr) and applies press/release edges
-    // on a 16 ms virtual-clock poll. Set and clear bits with Atomics;
-    // holds work, no auto-release, no synthetic key events.
+    // on an 8 ms virtual-clock poll. Set and clear bits with Atomics.
     // ================================================================
     var BTN_BACK = 1, BTN_UP = 2, BTN_SELECT = 4, BTN_DOWN = 8;
     var buttonMask = 0;
@@ -378,6 +377,12 @@
 
     function updateButtons(bit, pressed) {
       buttonMask = pressed ? (buttonMask | bit) : (buttonMask & ~bit);
+      Object.keys(btnMap).forEach(function (id) {
+        var el = document.getElementById(id);
+        var active = (buttonMask & btnMap[id]) !== 0;
+        el.classList.toggle('pressed', active);
+        el.setAttribute('aria-pressed', String(active));
+      });
       if (!qemu) return;
       if (pressed && currentBoard && currentBoard.audio) startAudio();
       if (currentBoard && currentBoard.classicButtons) {
@@ -401,37 +406,6 @@
       ArrowDown: BTN_DOWN, x: BTN_DOWN,
     };
 
-    // Clicked buttons must not keep focus, or the next Enter re-clicks
-    // them instead of pressing Select on the watch.
-    document.addEventListener('pointerup', function (e) {
-      var b = e.target && e.target.closest ? e.target.closest('button') : null;
-      if (b) setTimeout(function () { b.blur(); }, 0);
-    });
-
-    // Keys drive the watch only when focus is not in a form field —
-    // otherwise typing a URL would scroll the watch and Enter would
-    // press Select instead of submitting the field.
-    function typingIntoField(e) {
-      var t = e.target;
-      return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
-                   t.tagName === 'SELECT' || t.isContentEditable);
-    }
-
-    document.addEventListener('keydown', function (e) {
-      if (typingIntoField(e)) return;
-      var bit = keyMap[e.key];
-      if (bit === undefined) return;
-      e.preventDefault();
-      if (!e.repeat) updateButtons(bit, true);
-    });
-    document.addEventListener('keyup', function (e) {
-      if (typingIntoField(e)) return;
-      var bit = keyMap[e.key];
-      if (bit === undefined) return;
-      e.preventDefault();
-      updateButtons(bit, false);
-    });
-
     var btnMap = {
       'btn-back': BTN_BACK,
       'btn-up': BTN_UP,
@@ -439,21 +413,85 @@
       'btn-down': BTN_DOWN,
     };
 
+    var buttonArea = document.getElementById('buttons');
+    var buttonTimers = {};
+    var heldKeys = {};
+    var DOUBLE_PRESS_MS = 100, DOUBLE_GAP_MS = 100, LONG_PRESS_MS = 1000;
+
+    function cancelButtonGesture(bit) {
+      (buttonTimers[bit] || []).forEach(clearTimeout);
+      delete buttonTimers[bit];
+      updateButtons(bit, false);
+    }
+
+    // PebbleOS recognizes gestures from real press/release transitions.
+    // Keep modifier clicks alive after pointerup; Cmd takes precedence.
+    function beginButtonGesture(bit, e) {
+      cancelButtonGesture(bit);
+      updateButtons(bit, true);
+      if (e.metaKey) {
+        buttonTimers[bit] = [setTimeout(function () {
+          updateButtons(bit, false);
+          delete buttonTimers[bit];
+        }, LONG_PRESS_MS)];
+      } else if (e.ctrlKey) {
+        buttonTimers[bit] = [
+          setTimeout(function () { updateButtons(bit, false); }, DOUBLE_PRESS_MS),
+          setTimeout(function () { updateButtons(bit, true); }, DOUBLE_PRESS_MS + DOUBLE_GAP_MS),
+          setTimeout(function () {
+            updateButtons(bit, false);
+            delete buttonTimers[bit];
+          }, DOUBLE_PRESS_MS * 2 + DOUBLE_GAP_MS),
+        ];
+      }
+    }
+
+    // Focus the watch by clicking its screen/buttons, or by tabbing to it.
+    // All keyboard handling stays inside this area.
+    buttonArea.addEventListener('pointerdown', function () {
+      buttonArea.focus({ preventScroll: true });
+    });
+    canvas.addEventListener('pointerdown', function () {
+      buttonArea.focus({ preventScroll: true });
+    });
+    buttonArea.addEventListener('keydown', function (e) {
+      var bit = keyMap[e.key];
+      if (bit === undefined) return;
+      e.preventDefault();
+      if (!e.repeat && !heldKeys[e.key]) {
+        heldKeys[e.key] = bit;
+        beginButtonGesture(bit, e);
+      }
+    });
+    buttonArea.addEventListener('keyup', function (e) {
+      var bit = heldKeys[e.key];
+      if (bit === undefined) return;
+      e.preventDefault();
+      delete heldKeys[e.key];
+      if (!buttonTimers[bit]) updateButtons(bit, false);
+    });
+    buttonArea.addEventListener('focusout', function (e) {
+      if (e.relatedTarget && buttonArea.contains(e.relatedTarget)) return;
+      heldKeys = {};
+      Object.keys(btnMap).forEach(function (id) { cancelButtonGesture(btnMap[id]); });
+    });
+
     Object.keys(btnMap).forEach(function (id) {
       var el = document.getElementById(id);
       var bit = btnMap[id];
       el.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0 && !e.ctrlKey) return;
         e.preventDefault();
         el.setPointerCapture(e.pointerId);
-        el.classList.add('pressed');
-        updateButtons(bit, true);
+        beginButtonGesture(bit, e);
       });
       function release() {
-        el.classList.remove('pressed');
-        updateButtons(bit, false);
+        if (!buttonTimers[bit]) updateButtons(bit, false);
       }
       el.addEventListener('pointerup', release);
-      el.addEventListener('pointercancel', release);
+      el.addEventListener('pointercancel', function () { cancelButtonGesture(bit); });
+      // macOS Ctrl+click opens a context menu unless suppressed locally.
+      el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     });
 
     // ================================================================
