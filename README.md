@@ -2,7 +2,7 @@
 
 Pebble smartwatch emulator running in the browser. QEMU compiled to WebAssembly boots real Pebble firmware and renders the display to an HTML canvas.
 
-**[Demo: PebbleOS in the browser](https://ericmigi.github.io/pebble-qemu-wasm/)**
+**[Demo: PebbleOS in the browser](https://andrwj.github.io/pebble-qemu-wasm/)**
 
 ![Pebble in browser](pebble_wasm_first_frame.png)
 
