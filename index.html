@@ -917,16 +917,25 @@
     // decoded and Clay's default close target (pebblejs://close) is
     // rewritten to our same-origin return page, which posts the
     // response fragment back via postMessage.
-    function listenForConfigClose(onClosed, cleanup) {
+    function listenForConfigClose(onClosed, cleanup, channelName) {
+      const channel = channelName ? new BroadcastChannel(channelName) : null;
+      let finished = false;
       const handler = (e) => {
         if (e.origin !== window.location.origin) return;
         if (e.data && e.data.type === 'pkjs-config-closed') {
+          if (finished) return;
+          finished = true;
+          if (channel) {
+            channel.postMessage({ type: 'pkjs-config-received' });
+            channel.close();
+          }
           window.removeEventListener('message', handler);
           if (cleanup) cleanup();
           onClosed(e.data.response);
         }
       };
       window.addEventListener('message', handler);
+      if (channel) channel.onmessage = handler;
       return handler;
     }
 
@@ -976,10 +985,17 @@
         return;
       }
 
-      const sep = url.includes('?') ? '&' : '?';
-      const full = url + sep + 'return_to=' + encodeURIComponent(ret + '#');
-      listenForConfigClose(onClosed);
-      window.open(full, 'pkjs-config', 'width=420,height=680');
+      // Preserve the app's settings JSON in the fragment. return_to is
+      // a query parameter and must precede that fragment.
+      const full = new URL(url, window.location.href);
+      // COOP severs window.opener when visiting an external settings page.
+      // A unique same-origin channel routes the return to this emulator tab.
+      const session = crypto.randomUUID();
+      const returnUrl = new URL(ret);
+      returnUrl.searchParams.set('session', session);
+      full.searchParams.set('return_to', returnUrl.href + '#');
+      listenForConfigClose(onClosed, null, 'pkjs-config-' + session);
+      window.open(full.href, 'pkjs-config', 'width=420,height=680');
     }
 
     // Attach once QEMU is up and the serial bridge export exists.

@@ -6,10 +6,25 @@ Returning settings to the watch&hellip;
 <script>
   // Config pages navigate here via the return_to parameter with the
   // response payload in the fragment (Rebble convention). Hand it to the
-  // opener and close.
+  // opener, or a dedicated channel when COOP has severed window.opener.
   var payload = location.hash ? location.hash.slice(1) : '';
+  var session = new URLSearchParams(location.search).get('session');
   var target = window.opener || (window.parent !== window ? window.parent : null);
-  if (target) {
+  if (session) {
+    var channel = new BroadcastChannel('pkjs-config-' + session);
+    var timeout = setTimeout(function () {
+      channel.close();
+      document.body.textContent = 'Could not reach the emulator. Keep its tab open and reopen settings from there.';
+    }, 5000);
+    channel.onmessage = function (e) {
+      if (!e.data || e.data.type !== 'pkjs-config-received') return;
+      clearTimeout(timeout);
+      channel.close();
+      document.body.textContent = 'Settings returned to the emulator - you can close this tab.';
+      setTimeout(function () { window.close(); }, 300);
+    };
+    channel.postMessage({ type: 'pkjs-config-closed', response: payload });
+  } else if (target) {
     target.postMessage({ type: 'pkjs-config-closed', response: payload }, location.origin);
     document.body.textContent = 'Settings saved - you can close this tab.';
     setTimeout(function () { window.close(); }, 300);
